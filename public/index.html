@@ -746,6 +746,53 @@
   .catalyst-impact b.dn{color:var(--loss);}
   .catalyst-impact b.neutral{color:var(--text-3);}
 
+  /* Industry Environment Watch (replaces Catalyst Timeline) */
+  .thesis-block-sub{font-family:"IBM Plex Sans JP",sans-serif;font-size:11.5px;
+    color:var(--text-4);font-weight:300;margin-left:14px;letter-spacing:.02em;}
+  .industry-topics{display:flex;flex-direction:column;gap:0;
+    background:var(--surface);border:1px solid var(--border);border-radius:8px;
+    padding:8px 0;}
+  .topic-row{display:grid;grid-template-columns:120px 1fr 110px;gap:16px;
+    padding:16px 22px;border-bottom:1px solid var(--border);align-items:start;}
+  .topic-row:last-child{border-bottom:0;}
+  .topic-meta{display:flex;flex-direction:column;gap:8px;}
+  .topic-date{font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+    color:var(--text-3);letter-spacing:.04em;}
+  .topic-category{font-family:"IBM Plex Mono",monospace;font-size:9.5px;
+    letter-spacing:.1em;text-transform:uppercase;font-weight:600;
+    padding:3px 8px;border-radius:3px;border:1px solid;white-space:nowrap;
+    align-self:flex-start;}
+  .topic-category.cat-regulatory{color:var(--warn);background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.3);}
+  .topic-category.cat-industry{color:var(--cyan);background:rgba(56,189,248,.1);border-color:rgba(56,189,248,.3);}
+  .topic-category.cat-macro{color:var(--text-3);background:rgba(123,138,173,.1);border-color:var(--border-2);}
+  .topic-category.cat-technology{color:var(--blue-2);background:rgba(96,165,250,.1);border-color:rgba(96,165,250,.3);}
+  .topic-category.cat-competitive{color:var(--loss);background:var(--loss-bg);border-color:rgba(251,113,133,.3);}
+  .topic-category.cat-esg{color:var(--gain);background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.3);}
+  .topic-category.cat-geopolitical{color:var(--gold);background:var(--gold-dim);border-color:var(--gold-line);}
+  .topic-category.cat-other{color:var(--text-3);background:var(--surface-2);border-color:var(--border-2);}
+  .topic-body{display:flex;flex-direction:column;gap:6px;}
+  .topic-title{font-family:"IBM Plex Sans JP",sans-serif;font-size:13.5px;
+    color:var(--text);font-weight:600;line-height:1.5;}
+  .topic-summary{font-family:"IBM Plex Sans JP",sans-serif;font-size:12px;
+    color:var(--text-3);font-weight:300;line-height:1.65;}
+  .topic-foot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:4px;}
+  .topic-link{font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+    color:var(--cyan-bright);text-decoration:none;letter-spacing:.04em;
+    padding:3px 9px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);
+    border-radius:3px;transition:all .15s;max-width:340px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+  .topic-link:hover{background:rgba(56,189,248,.15);border-color:var(--cyan);
+    color:var(--cyan);}
+  .topic-no-link{font-family:"IBM Plex Mono",monospace;font-size:10px;
+    color:var(--text-4);font-style:italic;letter-spacing:.04em;}
+  .topic-risk-link{font-family:"IBM Plex Mono",monospace;font-size:10px;
+    color:var(--gold);letter-spacing:.04em;font-weight:500;}
+  .topic-relevance{font-family:"IBM Plex Mono",monospace;font-size:9.5px;
+    text-align:right;letter-spacing:.1em;font-weight:600;}
+  .topic-relevance.rel-high{color:var(--loss);}
+  .topic-relevance.rel-mid{color:var(--warn);}
+  .topic-relevance.rel-low{color:var(--text-4);}
+
   /* Disclaimer */
   .thesis-disclaimer{margin-top:24px;font-family:"IBM Plex Mono",monospace;font-size:10px;
     letter-spacing:.04em;line-height:1.85;color:var(--text-4);
@@ -1798,13 +1845,14 @@
       <div class="scenarios-grid" id="scenariosGrid"></div>
     </div>
 
-    <!-- 5. Catalyst Timeline -->
+    <!-- 5. Industry Environment Watch -->
     <div class="thesis-block">
       <div class="thesis-block-head">
-        <span class="thesis-eyebrow">▸ CATALYST TIMELINE</span>
-        <span class="thesis-block-title">今後 12 ヶ月のカタリスト</span>
+        <span class="thesis-eyebrow">▸ INDUSTRY ENVIRONMENT WATCH</span>
+        <span class="thesis-block-title">業界・事業環境トピック</span>
+        <span class="thesis-block-sub">事業等のリスクに関連する外部動向 (Web 検索結果)</span>
       </div>
-      <div class="catalyst-timeline" id="catalystTimeline"></div>
+      <div class="industry-topics" id="catalystTimeline"></div>
     </div>
 
     <div class="source-chips" id="thesisSources" style="margin-top:18px;"></div>
@@ -2674,7 +2722,8 @@ function renderThesis(d){
   const sc = it.scorecard;
   const val = it.valuation;
   const sn = it.scenarios;
-  const ct = it.catalysts || [];
+  // Prefer industry_topics; fall back to legacy "catalysts" for backward compat
+  const topics = it.industry_topics || it.catalysts || [];
 
   if (!sm || !sm.conviction || !sm.thesis_one_liner ||
       !sc || !Array.isArray(sc.categories) || sc.categories.length < 2 ||
@@ -2781,23 +2830,61 @@ function renderThesis(d){
       </div>`;
   }).join("");
 
-  // 5. Catalyst Timeline
-  if (ct.length === 0) {
-    $("catalystTimeline").innerHTML = `<div style="padding:18px;color:var(--text-4);font-style:italic;font-size:12px;">特定のカタリストなし</div>`;
+  // 5. Industry Environment Watch — topics with article URLs
+  if (topics.length === 0) {
+    $("catalystTimeline").innerHTML = `<div style="padding:18px;color:var(--text-4);font-style:italic;font-size:12px;">業界・事業環境のトピック該当なし</div>`;
   } else {
-    $("catalystTimeline").innerHTML = ct.map(c => {
-      const type = String(c.type || "macro").toLowerCase();
-      const dir = String(c.direction || "neutral").toLowerCase();
-      const dirArrow = dir === "up" ? "↗" : dir === "down" ? "↘" : "→";
-      const impactLabel = {high:"HIGH IMPACT",mid:"MID IMPACT",low:"LOW IMPACT"}[String(c.expected_impact || "mid").toLowerCase()] || "—";
-      return `
-        <div class="catalyst-row">
-          <div class="catalyst-date">${esc(c.date_label || "—")}</div>
-          <span class="catalyst-type ${type}">${esc(c.type_label || c.type || "—")}</span>
-          <div class="catalyst-event">${esc(c.event || "—")}<span class="relevance">${esc(c.thesis_relevance || "")}</span></div>
-          <div class="catalyst-impact">${impactLabel}<b class="${dir}">${dirArrow}</b></div>
-        </div>`;
-    }).join("");
+    // Detect if this is the new schema (has 'url' field) or legacy 'catalysts' schema
+    const isNewSchema = topics.some(t => t && (t.url || t.category || t.title));
+    if (isNewSchema) {
+      $("catalystTimeline").innerHTML = topics.map(t => {
+        const cat = String(t.category || "other").toLowerCase();
+        const rel = String(t.relevance || "mid").toLowerCase();
+        const relLabel = {high:"HIGH RELEVANCE",mid:"MID RELEVANCE",low:"LOW RELEVANCE"}[rel] || "—";
+        const isHttpUrl = (u) => typeof u === "string" && /^https?:\/\//.test(u);
+        const linkHtml = isHttpUrl(t.url)
+          ? `<a class="topic-link" href="${esc(t.url)}" target="_blank" rel="noopener noreferrer" title="${esc(t.url)}">${esc(t.source_label || "Source")} ↗</a>`
+          : `<span class="topic-no-link">No URL</span>`;
+        const dateStr = t.date ? esc(t.date) : "—";
+        const linkedRisk = t.linked_risk
+          ? `<span class="topic-risk-link">↳ ${esc(t.linked_risk)}</span>`
+          : "";
+        return `
+          <div class="topic-row">
+            <div class="topic-meta">
+              <span class="topic-date">${dateStr}</span>
+              <span class="topic-category cat-${cat}">${esc(t.category_label || t.category || "—")}</span>
+            </div>
+            <div class="topic-body">
+              <div class="topic-title">${esc(t.title || "—")}</div>
+              <div class="topic-summary">${esc(t.summary || "")}</div>
+              <div class="topic-foot">
+                ${linkHtml}
+                ${linkedRisk}
+              </div>
+            </div>
+            <div class="topic-relevance rel-${rel}">${relLabel}</div>
+          </div>`;
+      }).join("");
+    } else {
+      // Legacy catalysts (old data shape) — show with deprecation notice
+      $("catalystTimeline").innerHTML = `
+        <div style="padding:14px;color:var(--warn);font-size:11.5px;background:rgba(251,191,36,.05);border:1px dashed rgba(251,191,36,.3);border-radius:4px;margin-bottom:12px;">
+          ⚠ 旧スキーマ表示中: 再分析すると業界・事業環境ウォッチに切替わります
+        </div>` + topics.map(c => {
+          const type = String(c.type || "macro").toLowerCase();
+          const dir = String(c.direction || "neutral").toLowerCase();
+          const dirArrow = dir === "up" ? "↗" : dir === "down" ? "↘" : "→";
+          const impactLabel = {high:"HIGH IMPACT",mid:"MID IMPACT",low:"LOW IMPACT"}[String(c.expected_impact || "mid").toLowerCase()] || "—";
+          return `
+            <div class="catalyst-row">
+              <div class="catalyst-date">${esc(c.date_label || "—")}</div>
+              <span class="catalyst-type ${type}">${esc(c.type_label || c.type || "—")}</span>
+              <div class="catalyst-event">${esc(c.event || "—")}<span class="relevance">${esc(c.thesis_relevance || "")}</span></div>
+              <div class="catalyst-impact">${impactLabel}<b class="${dir}">${dirArrow}</b></div>
+            </div>`;
+        }).join("");
+    }
   }
 }
 
