@@ -22,6 +22,7 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
+import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -366,7 +367,32 @@ export default async function handler(req, res) {
     /* ─── OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria ─── */
     // User spec: rows = ONLY 決算期, 資本金, 発行済株式数, 従業員数, 代表者, 本店所在地 (all EDINET)
     // market_card = static JPX 上場維持基準 template (not AI-generated)
-    const segment = detectMarketSegment(merged);
+
+    // Step 1: cheap heuristic from Phase 1 AI output (fallback if shikiho lookup fails)
+    let segment = detectMarketSegment(merged);
+
+    // Step 2: verified lookup via 会社四季報 + others (authoritative for new market segments)
+    send("market_segment_searching", { name: edinetCompanyInfo?.name_jp || merged.company?.name_jp || null });
+    try {
+      const verifiedSegment = await findMarketSegment(client, {
+        name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
+        code,
+      });
+      if (verifiedSegment) {
+        segment = verifiedSegment;
+        merged._market_segment_source = "shikiho-verified";
+        send("market_segment_verified", { segment });
+      } else {
+        merged._market_segment_source = "phase1-heuristic";
+      }
+    } catch (segErr) {
+      console.warn(`[Market segment] lookup failed for ${code}: ${segErr.message}`);
+      merged._market_segment_source = "phase1-heuristic";
+    }
+
+    // Step 3: apply verified segment everywhere (market_tags, listing.market_card, listing.aside)
+    applyMarketSegmentToMerged(merged, segment);
+
     const edinetListingRows = edinetCompanyInfo ? buildEdinetListingRows(edinetCompanyInfo) : [];
 
     merged.listing = merged.listing || {};

@@ -20,6 +20,7 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
+import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -253,7 +254,24 @@ export default async function handler(req, res) {
     }
 
     /* OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria */
-    const segment = detectMarketSegment(merged);
+    let segment = detectMarketSegment(merged);
+    try {
+      const verifiedSegment = await findMarketSegment(client, {
+        name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
+        code,
+      });
+      if (verifiedSegment) {
+        segment = verifiedSegment;
+        merged._market_segment_source = "shikiho-verified";
+      } else {
+        merged._market_segment_source = "phase1-heuristic";
+      }
+    } catch (segErr) {
+      console.warn(`[Market segment] lookup failed for ${code}: ${segErr.message}`);
+      merged._market_segment_source = "phase1-heuristic";
+    }
+    applyMarketSegmentToMerged(merged, segment);
+
     const edinetListingRows = edinetCompanyInfo ? buildEdinetListingRows(edinetCompanyInfo) : [];
     merged.listing = merged.listing || {};
     merged.listing.rows = edinetListingRows;
