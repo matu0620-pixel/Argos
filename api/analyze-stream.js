@@ -12,7 +12,15 @@ import {
   getJstNow
 } from "../lib/prompt.js";
 import { getFinancialsByCode, buildEdinetListingRows } from "../lib/edinet.js";
-import { getYahooQuote, formatChangePercent, formatChangeAmount } from "../lib/yahoo-finance.js";
+import {
+  getYahooQuote,
+  formatChangePercent,
+  formatChangeAmount,
+  computeMarketCap,
+  computePER,
+  formatVolume,
+} from "../lib/yahoo-finance.js";
+import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -267,7 +275,7 @@ export default async function handler(req, res) {
     /* ─── MERGE Phase 1-3 (financial override happens here) ─── */
     const merged = mergeResults(p1.data, p2.data);
 
-    /* ─── OVERRIDE 1: Company name from EDINET (authoritative) ─── */
+    /* ─── OVERRIDE 1: Company name + blurb from EDINET (authoritative) ─── */
     if (edinetCompanyInfo?.name_jp) {
       merged.company = merged.company || {};
       merged.company.name_jp = edinetCompanyInfo.name_jp;
@@ -277,7 +285,13 @@ export default async function handler(req, res) {
       merged.company = merged.company || {};
       merged.company.name_en = edinetCompanyInfo.name_en;
     }
-    // Inject EDINET facts into company tags (employees / capital) when present
+    // Override blurb with EDINET 有報の事業概要 (when extracted)
+    if (edinetCompanyInfo?.business_summary) {
+      merged.company = merged.company || {};
+      merged.company.blurb = edinetCompanyInfo.business_summary;
+      merged._blurb_source = "EDINET";
+    }
+    // EDINET facts hint for tags
     if (edinetCompanyInfo) {
       merged.company = merged.company || {};
       merged.company._edinet_facts = {
@@ -288,31 +302,20 @@ export default async function handler(req, res) {
       };
     }
 
-    /* ─── OVERRIDE 1.5: Listing Profile rows from EDINET (authoritative for company facts) ─── */
-    // EDINET-sourced fields (replace AI's guesses): 設立, 決算期, 資本金, 発行済株式総数,
-    //   従業員数, 監査法人, 代表者, 本店所在地
-    // AI-sourced fields (kept): 上場市場, 業種(33), 業種(17), 指数構成, 上場日, 主幹事証券, 流通株式比率
-    if (edinetCompanyInfo) {
-      const edinetRows = buildEdinetListingRows(edinetCompanyInfo);
-      const edinetKeys = new Set(edinetRows.map(r => r.key));
-      const aiRows = merged.listing?.rows || [];
+    /* ─── OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria ─── */
+    // User spec: rows = ONLY 決算期, 資本金, 発行済株式数, 従業員数, 代表者, 本店所在地 (all EDINET)
+    // market_card = static JPX 上場維持基準 template (not AI-generated)
+    const segment = detectMarketSegment(merged);
+    const edinetListingRows = edinetCompanyInfo ? buildEdinetListingRows(edinetCompanyInfo) : [];
 
-      // Keep only AI rows that EDINET doesn't cover
-      const filteredAiRows = aiRows.filter(r => !edinetKeys.has(r.key));
+    merged.listing = merged.listing || {};
+    merged.listing.rows = edinetListingRows;  // EDINET-only, 6 fields max
+    merged.listing.market_card = getMarketCard(segment);
+    merged.listing.aside = getMarketAside(segment);
+    merged._listing_source = "EDINET + JPX 上場維持基準";
+    merged._market_segment = segment;
 
-      // Final order: market-related rows (AI) first, then company facts (EDINET)
-      const marketKeys = ["上場市場", "業種 (33)", "業種 (17)", "指数構成", "上場日", "主幹事証券", "流通株式比率"];
-      const aiMarketRows = filteredAiRows.filter(r =>
-        marketKeys.some(k => r.key === k || r.key?.startsWith(k.split(" ")[0]))
-      );
-      const aiOtherRows = filteredAiRows.filter(r => !aiMarketRows.includes(r));
-
-      merged.listing = merged.listing || {};
-      merged.listing.rows = [...aiMarketRows, ...edinetRows, ...aiOtherRows];
-      merged._listing_source = "EDINET + Web";
-    }
-
-    /* ─── OVERRIDE 2: Stock price from Yahoo Finance (前日終値ベース) ─── */
+    /* ─── OVERRIDE 2: Stock price + market cap + PER + volume from Yahoo + EDINET ─── */
     if (yahooOk) {
       merged.price = merged.price || {};
       merged.price.last = yahooQuote.price;
@@ -325,16 +328,43 @@ export default async function handler(req, res) {
       merged.price.data_freshness = yahooQuote.market_state === "REGULAR"
         ? "ザラ場中 (Yahoo)"
         : "前営業日終値 (Yahoo)";
-      // Replace AI's spark with Yahoo's actual closing series
       if (Array.isArray(yahooQuote.spark) && yahooQuote.spark.length > 0) {
         merged.price.spark = yahooQuote.spark;
       }
-      // 52w high/low if not already set or AI value seems wrong
       if (yahooQuote.fifty_two_week_high != null) {
         merged.price._52w_high = yahooQuote.fifty_two_week_high;
         merged.price._52w_low = yahooQuote.fifty_two_week_low;
       }
-      merged._price_source = "Yahoo Finance";
+
+      // Compute market cap from EDINET shares × Yahoo price
+      if (edinetCompanyInfo?.shares_issued && yahooQuote.price) {
+        const cap = computeMarketCap(edinetCompanyInfo.shares_issued, yahooQuote.price);
+        if (cap) {
+          merged.price.market_cap = cap;
+          merged.price.market_cap_change = null; // will be hidden when null
+        }
+      }
+
+      // Compute PER from EDINET net profit ÷ EDINET shares × Yahoo price
+      const latestFy = edinetFinancials?.[edinetFinancials.length - 1];
+      if (latestFy?.net_profit != null && edinetCompanyInfo?.shares_issued && yahooQuote.price) {
+        const per = computePER(latestFy.net_profit, edinetCompanyInfo.shares_issued, yahooQuote.price);
+        if (per) {
+          merged.price.per = per;
+          merged.price.per_note = `${latestFy.fy} 純利益ベース (実績)`;
+          merged.price.per_dn = false;
+        }
+      }
+
+      // Volume from Yahoo
+      if (yahooQuote.volume != null) {
+        merged.price.volume = formatVolume(yahooQuote.volume);
+      }
+      if (yahooQuote.avg_volume_5d != null) {
+        merged.price.volume_note = `5日平均 ${formatVolume(yahooQuote.avg_volume_5d)}`;
+      }
+
+      merged._price_source = "Yahoo Finance + EDINET";
     } else {
       merged._price_source = merged.price?.last != null ? "AI/Web (Yahoo unavailable)" : null;
       merged._yahoo_error = yahooQuote?._error || null;

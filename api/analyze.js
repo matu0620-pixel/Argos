@@ -12,7 +12,13 @@ import {
   getJstNow
 } from "../lib/prompt.js";
 import { getFinancialsByCode, buildEdinetListingRows } from "../lib/edinet.js";
-import { getYahooQuote } from "../lib/yahoo-finance.js";
+import {
+  getYahooQuote,
+  computeMarketCap,
+  computePER,
+  formatVolume,
+} from "../lib/yahoo-finance.js";
+import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -177,7 +183,7 @@ export default async function handler(req, res) {
 
     const merged = mergeResults(p1.data, p2.data);
 
-    /* OVERRIDE 1: Company name from EDINET */
+    /* OVERRIDE 1: Company name + blurb from EDINET */
     if (edinetCompanyInfo?.name_jp) {
       merged.company = merged.company || {};
       merged.company.name_jp = edinetCompanyInfo.name_jp;
@@ -186,6 +192,11 @@ export default async function handler(req, res) {
     if (edinetCompanyInfo?.name_en) {
       merged.company = merged.company || {};
       merged.company.name_en = edinetCompanyInfo.name_en;
+    }
+    if (edinetCompanyInfo?.business_summary) {
+      merged.company = merged.company || {};
+      merged.company.blurb = edinetCompanyInfo.business_summary;
+      merged._blurb_source = "EDINET";
     }
     if (edinetCompanyInfo) {
       merged.company = merged.company || {};
@@ -197,23 +208,17 @@ export default async function handler(req, res) {
       };
     }
 
-    /* OVERRIDE 1.5: Listing Profile rows from EDINET */
-    if (edinetCompanyInfo) {
-      const edinetRows = buildEdinetListingRows(edinetCompanyInfo);
-      const edinetKeys = new Set(edinetRows.map(r => r.key));
-      const aiRows = merged.listing?.rows || [];
-      const filteredAiRows = aiRows.filter(r => !edinetKeys.has(r.key));
-      const marketKeys = ["上場市場", "業種 (33)", "業種 (17)", "指数構成", "上場日", "主幹事証券", "流通株式比率"];
-      const aiMarketRows = filteredAiRows.filter(r =>
-        marketKeys.some(k => r.key === k || r.key?.startsWith(k.split(" ")[0]))
-      );
-      const aiOtherRows = filteredAiRows.filter(r => !aiMarketRows.includes(r));
-      merged.listing = merged.listing || {};
-      merged.listing.rows = [...aiMarketRows, ...edinetRows, ...aiOtherRows];
-      merged._listing_source = "EDINET + Web";
-    }
+    /* OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria */
+    const segment = detectMarketSegment(merged);
+    const edinetListingRows = edinetCompanyInfo ? buildEdinetListingRows(edinetCompanyInfo) : [];
+    merged.listing = merged.listing || {};
+    merged.listing.rows = edinetListingRows;
+    merged.listing.market_card = getMarketCard(segment);
+    merged.listing.aside = getMarketAside(segment);
+    merged._listing_source = "EDINET + JPX 上場維持基準";
+    merged._market_segment = segment;
 
-    /* OVERRIDE 2: Stock price from Yahoo */
+    /* OVERRIDE 2: Stock price + computed market cap + PER + volume */
     if (yahooOk) {
       merged.price = merged.price || {};
       merged.price.last = yahooQuote.price;
@@ -224,8 +229,7 @@ export default async function handler(req, res) {
       merged.price.as_of = yahooQuote.as_of_date;
       merged.price.currency = yahooQuote.currency === "JPY" ? "円" : yahooQuote.currency;
       merged.price.data_freshness = yahooQuote.market_state === "REGULAR"
-        ? "ザラ場中 (Yahoo)"
-        : "前営業日終値 (Yahoo)";
+        ? "ザラ場中 (Yahoo)" : "前営業日終値 (Yahoo)";
       if (Array.isArray(yahooQuote.spark) && yahooQuote.spark.length > 0) {
         merged.price.spark = yahooQuote.spark;
       }
@@ -233,7 +237,31 @@ export default async function handler(req, res) {
         merged.price._52w_high = yahooQuote.fifty_two_week_high;
         merged.price._52w_low = yahooQuote.fifty_two_week_low;
       }
-      merged._price_source = "Yahoo Finance";
+      // Market cap = EDINET shares × Yahoo price
+      if (edinetCompanyInfo?.shares_issued && yahooQuote.price) {
+        const cap = computeMarketCap(edinetCompanyInfo.shares_issued, yahooQuote.price);
+        if (cap) {
+          merged.price.market_cap = cap;
+          merged.price.market_cap_change = null;
+        }
+      }
+      // PER = price / EPS where EPS = net_profit / shares
+      const latestFy = edinetFinancials?.[edinetFinancials.length - 1];
+      if (latestFy?.net_profit != null && edinetCompanyInfo?.shares_issued && yahooQuote.price) {
+        const per = computePER(latestFy.net_profit, edinetCompanyInfo.shares_issued, yahooQuote.price);
+        if (per) {
+          merged.price.per = per;
+          merged.price.per_note = `${latestFy.fy} 純利益ベース (実績)`;
+          merged.price.per_dn = false;
+        }
+      }
+      if (yahooQuote.volume != null) {
+        merged.price.volume = formatVolume(yahooQuote.volume);
+      }
+      if (yahooQuote.avg_volume_5d != null) {
+        merged.price.volume_note = `5日平均 ${formatVolume(yahooQuote.avg_volume_5d)}`;
+      }
+      merged._price_source = "Yahoo Finance + EDINET";
     } else {
       merged._price_source = merged.price?.last != null ? "AI/Web (Yahoo unavailable)" : null;
       merged._yahoo_error = yahooQuote?._error || null;
