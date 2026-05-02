@@ -12,6 +12,7 @@ import {
   getJstNow
 } from "../lib/prompt.js";
 import { getFinancialsByCode } from "../lib/edinet.js";
+import { getYahooQuote, formatChangePercent, formatChangeAmount } from "../lib/yahoo-finance.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -150,6 +151,12 @@ export default async function handler(req, res) {
   const jstNow = getJstNow();
 
   try {
+    /* Kick off Yahoo Finance fetch IN PARALLEL with Phase 1 — independent + fast */
+    const yahooPromise = getYahooQuote(code).catch(err => {
+      console.warn(`[Yahoo] ${code}:`, err.message);
+      return { _error: err.message };
+    });
+
     /* ─── PHASE 1: Profile + Price + Listing + IR News (Claude + Web) ─── */
     send("phase", {
       num: 1, total: 4,
@@ -189,6 +196,7 @@ export default async function handler(req, res) {
     /* ─── PHASE 2: EDINET Financials ─── */
     let edinetFinancials = null;
     let edinetMeta = null;
+    let edinetCompanyInfo = null;
     let edinetDataBasis = "連結"; // default; will be overridden from EDINET response
     let edinetErrorMessage = null;
     if (edinetKey) {
@@ -203,13 +211,15 @@ export default async function handler(req, res) {
         const fin = await getFinancialsByCode(edinetKey, code);
         edinetFinancials = fin.financials_annual;
         edinetMeta = fin.edinet_meta;
+        edinetCompanyInfo = fin.company_info || null;
         edinetDataBasis = fin.data_basis || "連結";
         send("edinet_success", {
           docID: fin.edinet_meta.docID,
           docDescription: fin.edinet_meta.docDescription,
           submitDateTime: fin.edinet_meta.submitDateTime,
           dataBasis: fin.data_basis,
-          yearsCount: edinetFinancials.length
+          yearsCount: edinetFinancials.length,
+          companyName: edinetCompanyInfo?.name_jp || fin.edinet_meta.filerName || null
         });
       } catch (edinetErr) {
         edinetErrorMessage = edinetErr.message;
@@ -221,6 +231,21 @@ export default async function handler(req, res) {
       send("edinet_skipped", { message: edinetErrorMessage });
     }
 
+    /* ─── PHASE 2.5: Resolve Yahoo Finance promise ─── */
+    const yahooQuote = await yahooPromise;
+    const yahooOk = yahooQuote && !yahooQuote._error && yahooQuote.price != null;
+    if (yahooOk) {
+      send("yahoo_success", {
+        price: yahooQuote.price,
+        previous_close: yahooQuote.previous_close,
+        change_percent: yahooQuote.change_percent,
+        as_of: yahooQuote.as_of_date,
+        market_state: yahooQuote.market_state,
+      });
+    } else {
+      send("yahoo_failed", { message: yahooQuote?._error || "Yahoo Finance unavailable" });
+    }
+
     /* ─── PHASE 3: Risks + Competitive Landscape (Claude + Web) ─── */
     send("phase", {
       num: 3, total: 4,
@@ -230,15 +255,66 @@ export default async function handler(req, res) {
 
     const finCtx = formatFinancialsForPrompt(edinetFinancials);
     const indCtxStr = formatIndustryContext(industryProfile);
+    // Use EDINET's authoritative company name when available — overrides AI's guess
+    const authoritativeName = edinetCompanyInfo?.name_jp || p1.data.company.name_jp;
     const p2 = await streamPhase(
       client, send, "phase2",
-      buildPromptPhase2(code, p1.data.company.name_jp, finCtx, indCtxStr),
+      buildPromptPhase2(code, authoritativeName, finCtx, indCtxStr),
       8
     );
     p2.data = postProcessPhase2(p2.data);
 
     /* ─── MERGE Phase 1-3 (financial override happens here) ─── */
     const merged = mergeResults(p1.data, p2.data);
+
+    /* ─── OVERRIDE 1: Company name from EDINET (authoritative) ─── */
+    if (edinetCompanyInfo?.name_jp) {
+      merged.company = merged.company || {};
+      merged.company.name_jp = edinetCompanyInfo.name_jp;
+      merged._name_source = "EDINET";
+    }
+    if (edinetCompanyInfo?.name_en) {
+      merged.company = merged.company || {};
+      merged.company.name_en = edinetCompanyInfo.name_en;
+    }
+    // Inject EDINET facts into company tags (employees / capital) when present
+    if (edinetCompanyInfo) {
+      merged.company = merged.company || {};
+      merged.company._edinet_facts = {
+        employees: edinetCompanyInfo.employees ?? null,
+        capital_stock: edinetCompanyInfo.capital_stock ?? null,
+        shares_issued: edinetCompanyInfo.shares_issued ?? null,
+        head_office: edinetCompanyInfo.head_office ?? null,
+      };
+    }
+
+    /* ─── OVERRIDE 2: Stock price from Yahoo Finance (前日終値ベース) ─── */
+    if (yahooOk) {
+      merged.price = merged.price || {};
+      merged.price.last = yahooQuote.price;
+      merged.price.previous_close = yahooQuote.previous_close;
+      merged.price.change_amount = yahooQuote.change != null ? Math.round(yahooQuote.change) : null;
+      merged.price.change_pct = yahooQuote.change_percent != null
+        ? Math.round(yahooQuote.change_percent * 100) / 100 : null;
+      merged.price.as_of = yahooQuote.as_of_date;
+      merged.price.currency = yahooQuote.currency === "JPY" ? "円" : yahooQuote.currency;
+      merged.price.data_freshness = yahooQuote.market_state === "REGULAR"
+        ? "ザラ場中 (Yahoo)"
+        : "前営業日終値 (Yahoo)";
+      // Replace AI's spark with Yahoo's actual closing series
+      if (Array.isArray(yahooQuote.spark) && yahooQuote.spark.length > 0) {
+        merged.price.spark = yahooQuote.spark;
+      }
+      // 52w high/low if not already set or AI value seems wrong
+      if (yahooQuote.fifty_two_week_high != null) {
+        merged.price._52w_high = yahooQuote.fifty_two_week_high;
+        merged.price._52w_low = yahooQuote.fifty_two_week_low;
+      }
+      merged._price_source = "Yahoo Finance";
+    } else {
+      merged._price_source = merged.price?.last != null ? "AI/Web (Yahoo unavailable)" : null;
+      merged._yahoo_error = yahooQuote?._error || null;
+    }
 
     if (edinetFinancials) {
       // EDINET-derived data is authoritative — override anything from AI/web search
@@ -290,7 +366,7 @@ export default async function handler(req, res) {
         const ctxSummary = buildPhase4Context(merged);
         const p4 = await streamPhase(
           client, send, "phase4",
-          buildPromptPhase4(code, p1.data.company.name_jp, ctxSummary, indCtxStr, memoContextStr),
+          buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, memoContextStr),
           5
         );
         p4.data = postProcessPhase4(p4.data);

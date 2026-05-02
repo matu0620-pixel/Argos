@@ -12,6 +12,7 @@ import {
   getJstNow
 } from "../lib/prompt.js";
 import { getFinancialsByCode } from "../lib/edinet.js";
+import { getYahooQuote } from "../lib/yahoo-finance.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -115,6 +116,12 @@ export default async function handler(req, res) {
   const jstNow = getJstNow();
 
   try {
+    // Kick off Yahoo Finance fetch in parallel
+    const yahooPromise = getYahooQuote(code).catch(err => {
+      console.warn(`[Yahoo] ${code}:`, err.message);
+      return { _error: err.message };
+    });
+
     // Phase 1
     const industryEnumText = formatIndustryEnumForPrompt();
     const p1 = await fetchPhase(client, buildPromptPhase1(code, jstNow, industryEnumText), 10);
@@ -140,6 +147,7 @@ export default async function handler(req, res) {
     // EDINET fetch
     let edinetFinancials = null;
     let edinetMeta = null;
+    let edinetCompanyInfo = null;
     let edinetDataBasis = "連結";
     let edinetErrorMessage = null;
     if (edinetKey) {
@@ -147,6 +155,7 @@ export default async function handler(req, res) {
         const fin = await getFinancialsByCode(edinetKey, code);
         edinetFinancials = fin.financials_annual;
         edinetMeta = fin.edinet_meta;
+        edinetCompanyInfo = fin.company_info || null;
         edinetDataBasis = fin.data_basis || "連結";
       } catch (e) {
         edinetErrorMessage = e.message;
@@ -156,12 +165,64 @@ export default async function handler(req, res) {
       edinetErrorMessage = "EDINET_API_KEY 未設定";
     }
 
-    // Phase 2 (Risks + Competitive)
+    // Resolve Yahoo (parallel)
+    const yahooQuote = await yahooPromise;
+    const yahooOk = yahooQuote && !yahooQuote._error && yahooQuote.price != null;
+
+    // Phase 2 (Risks + Competitive) — use authoritative EDINET name
     const finCtx = formatFinancialsForPrompt(edinetFinancials);
-    const p2 = await fetchPhase(client, buildPromptPhase2(code, p1.data.company.name_jp, finCtx, indCtxStr), 8);
+    const authoritativeName = edinetCompanyInfo?.name_jp || p1.data.company.name_jp;
+    const p2 = await fetchPhase(client, buildPromptPhase2(code, authoritativeName, finCtx, indCtxStr), 8);
     p2.data = postProcessPhase2(p2.data);
 
     const merged = mergeResults(p1.data, p2.data);
+
+    /* OVERRIDE 1: Company name from EDINET */
+    if (edinetCompanyInfo?.name_jp) {
+      merged.company = merged.company || {};
+      merged.company.name_jp = edinetCompanyInfo.name_jp;
+      merged._name_source = "EDINET";
+    }
+    if (edinetCompanyInfo?.name_en) {
+      merged.company = merged.company || {};
+      merged.company.name_en = edinetCompanyInfo.name_en;
+    }
+    if (edinetCompanyInfo) {
+      merged.company = merged.company || {};
+      merged.company._edinet_facts = {
+        employees: edinetCompanyInfo.employees ?? null,
+        capital_stock: edinetCompanyInfo.capital_stock ?? null,
+        shares_issued: edinetCompanyInfo.shares_issued ?? null,
+        head_office: edinetCompanyInfo.head_office ?? null,
+      };
+    }
+
+    /* OVERRIDE 2: Stock price from Yahoo */
+    if (yahooOk) {
+      merged.price = merged.price || {};
+      merged.price.last = yahooQuote.price;
+      merged.price.previous_close = yahooQuote.previous_close;
+      merged.price.change_amount = yahooQuote.change != null ? Math.round(yahooQuote.change) : null;
+      merged.price.change_pct = yahooQuote.change_percent != null
+        ? Math.round(yahooQuote.change_percent * 100) / 100 : null;
+      merged.price.as_of = yahooQuote.as_of_date;
+      merged.price.currency = yahooQuote.currency === "JPY" ? "円" : yahooQuote.currency;
+      merged.price.data_freshness = yahooQuote.market_state === "REGULAR"
+        ? "ザラ場中 (Yahoo)"
+        : "前営業日終値 (Yahoo)";
+      if (Array.isArray(yahooQuote.spark) && yahooQuote.spark.length > 0) {
+        merged.price.spark = yahooQuote.spark;
+      }
+      if (yahooQuote.fifty_two_week_high != null) {
+        merged.price._52w_high = yahooQuote.fifty_two_week_high;
+        merged.price._52w_low = yahooQuote.fifty_two_week_low;
+      }
+      merged._price_source = "Yahoo Finance";
+    } else {
+      merged._price_source = merged.price?.last != null ? "AI/Web (Yahoo unavailable)" : null;
+      merged._yahoo_error = yahooQuote?._error || null;
+    }
+
     if (edinetFinancials) {
       merged.financials_annual = edinetFinancials;
       merged.financials_quarterly = [];
@@ -195,7 +256,7 @@ export default async function handler(req, res) {
 
       try {
         const ctxSummary = buildPhase4Context(merged);
-        const p4 = await fetchPhase(client, buildPromptPhase4(code, p1.data.company.name_jp, ctxSummary, indCtxStr, memoContextStr), 5);
+        const p4 = await fetchPhase(client, buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, memoContextStr), 5);
         p4.data = postProcessPhase4(p4.data);
         if (p4.data?.investment_thesis) {
           merged.investment_thesis = p4.data.investment_thesis;

@@ -219,6 +219,9 @@
     text-transform:uppercase;color:var(--blue-2);font-weight:500;
     background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);
     padding:5px 10px;border-radius:4px;}
+  .tag.tag-edinet{color:var(--gold);background:var(--gold-dim);border-color:var(--gold-line);
+    text-transform:none;font-size:10.5px;letter-spacing:.04em;cursor:help;}
+  .tag.tag-edinet::before{content:"●";font-size:7px;margin-right:5px;vertical-align:middle;}
 
   .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;
     background:var(--border);border:1px solid var(--border);
@@ -2114,7 +2117,21 @@ function renderHero(d){
   $("companyName").textContent = cleanText(d.company?.name_jp) || "—";
   $("companyNameEn").textContent = cleanText(d.company?.name_en) || "—";
   $("companyBlurb").textContent = cleanText(d.company?.blurb) || "—";
-  $("companyTags").innerHTML = (d.company?.tags||[]).map(t => `<span class="tag">${esc(cleanText(t))}</span>`).join("");
+
+  // Build company tag list — AI tags + EDINET-derived facts (when available)
+  const aiTags = (d.company?.tags||[]).map(t => `<span class="tag">${esc(cleanText(t))}</span>`).join("");
+  const facts = d.company?._edinet_facts || {};
+  const factTags = [];
+  if (facts.employees) {
+    factTags.push(`<span class="tag tag-edinet" title="EDINET 有報">従業員 ${facts.employees.toLocaleString("ja-JP")} 名</span>`);
+  }
+  if (facts.capital_stock) {
+    const capDisp = facts.capital_stock >= 1e8
+      ? `${(facts.capital_stock / 1e8).toLocaleString("ja-JP", {maximumFractionDigits: 1})} 億円`
+      : `${(facts.capital_stock / 1e6).toLocaleString("ja-JP", {maximumFractionDigits: 0})} 百万円`;
+    factTags.push(`<span class="tag tag-edinet" title="EDINET 有報">資本金 ${capDisp}</span>`);
+  }
+  $("companyTags").innerHTML = aiTags + factTags.join("");
 
   // STATS
   const p = d.price || {};
@@ -2837,7 +2854,23 @@ function renderAll(d){
 
   // Render source link chips for each section
   const s = d.sources || {};
-  renderSources("heroSources",    s.hero,        "Sources →");
+  // Build hero sources: AI's sources + Yahoo Finance link (when used) + EDINET link (when used)
+  const heroSources = [...(s.hero || [])];
+  if (d._price_source === "Yahoo Finance" && d.code) {
+    heroSources.push({
+      label: "Yahoo!ファイナンス (株価)",
+      url: `https://finance.yahoo.co.jp/quote/${d.code}.T`,
+      primary: true
+    });
+  }
+  if (d._name_source === "EDINET" && d.edinet_meta?.docID) {
+    heroSources.push({
+      label: "EDINET 有報 (会社名)",
+      url: `https://disclosure2.edinet-fsa.go.jp/WEEK0010.aspx?bSearch=true&keyWord=&dateFrom=&dateTo=&edinetCode=${d.edinet_meta.edinetCode || ""}`,
+      primary: true
+    });
+  }
+  renderSources("heroSources",    heroSources,   "Sources →");
   renderSources("listingSources", s.listing,     "JPX / EDINET →");
   renderSources("finSources",     s.financials,  "Financial Sources →");
   renderSources("ciSources",      s.competitive, "Industry Sources →");
