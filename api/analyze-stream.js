@@ -337,16 +337,27 @@ export default async function handler(req, res) {
         }
       }
 
-      // Sync the hero "会社 IR" chip with the (possibly updated) company_ir_url
-      if (Array.isArray(merged.sources?.hero)) {
-        const irChip = merged.sources.hero.find(c => /会社 ?IR/.test(c.label || ""));
-        if (irChip) {
-          if (merged.company_ir_url) {
-            irChip.url = merged.company_ir_url;
-          } else {
-            // Drop the chip rather than show wrong URL — frontend falls back via minkabu
-            const idx = merged.sources.hero.indexOf(irChip);
-            if (idx >= 0) merged.sources.hero.splice(idx, 1);
+      // Sync the "会社 IR" chip across ALL source arrays (hero, news, etc.)
+      // — also rename any legacy "会社開示一覧" labels to "会社 IR" for consistency
+      if (merged.sources && typeof merged.sources === "object") {
+        for (const key of Object.keys(merged.sources)) {
+          const arr = merged.sources[key];
+          if (!Array.isArray(arr)) continue;
+          // Find any chip whose label is "会社 IR" or the legacy "会社開示一覧"
+          for (let i = arr.length - 1; i >= 0; i--) {
+            const c = arr[i];
+            if (!c || typeof c !== "object") continue;
+            const label = String(c.label || "");
+            if (/会社 ?IR|会社開示一覧/.test(label)) {
+              if (merged.company_ir_url) {
+                // Update label to canonical "会社 IR" and use verified URL
+                c.label = "会社 IR";
+                c.url = merged.company_ir_url;
+              } else {
+                // No verified URL → drop the chip entirely (frontend handles fallback)
+                arr.splice(i, 1);
+              }
+            }
           }
         }
       }

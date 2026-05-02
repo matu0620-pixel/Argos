@@ -230,15 +230,23 @@ export default async function handler(req, res) {
           merged._ir_url_source = "fallback-needed";
         }
       }
-      // Sync hero "会社 IR" chip
-      if (Array.isArray(merged.sources?.hero)) {
-        const irChip = merged.sources.hero.find(c => /会社 ?IR/.test(c.label || ""));
-        if (irChip) {
-          if (merged.company_ir_url) {
-            irChip.url = merged.company_ir_url;
-          } else {
-            const idx = merged.sources.hero.indexOf(irChip);
-            if (idx >= 0) merged.sources.hero.splice(idx, 1);
+      // Sync "会社 IR" chips across ALL source arrays + rename legacy 会社開示一覧 → 会社 IR
+      if (merged.sources && typeof merged.sources === "object") {
+        for (const key of Object.keys(merged.sources)) {
+          const arr = merged.sources[key];
+          if (!Array.isArray(arr)) continue;
+          for (let i = arr.length - 1; i >= 0; i--) {
+            const c = arr[i];
+            if (!c || typeof c !== "object") continue;
+            const label = String(c.label || "");
+            if (/会社 ?IR|会社開示一覧/.test(label)) {
+              if (merged.company_ir_url) {
+                c.label = "会社 IR";
+                c.url = merged.company_ir_url;
+              } else {
+                arr.splice(i, 1);
+              }
+            }
           }
         }
       }
