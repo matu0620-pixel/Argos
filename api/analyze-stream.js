@@ -11,7 +11,7 @@ import {
   postProcessPhase4,
   getJstNow
 } from "../lib/prompt.js";
-import { getFinancialsByCode } from "../lib/edinet.js";
+import { getFinancialsByCode, buildEdinetListingRows } from "../lib/edinet.js";
 import { getYahooQuote, formatChangePercent, formatChangeAmount } from "../lib/yahoo-finance.js";
 import {
   getIndustryProfile,
@@ -286,6 +286,30 @@ export default async function handler(req, res) {
         shares_issued: edinetCompanyInfo.shares_issued ?? null,
         head_office: edinetCompanyInfo.head_office ?? null,
       };
+    }
+
+    /* ─── OVERRIDE 1.5: Listing Profile rows from EDINET (authoritative for company facts) ─── */
+    // EDINET-sourced fields (replace AI's guesses): 設立, 決算期, 資本金, 発行済株式総数,
+    //   従業員数, 監査法人, 代表者, 本店所在地
+    // AI-sourced fields (kept): 上場市場, 業種(33), 業種(17), 指数構成, 上場日, 主幹事証券, 流通株式比率
+    if (edinetCompanyInfo) {
+      const edinetRows = buildEdinetListingRows(edinetCompanyInfo);
+      const edinetKeys = new Set(edinetRows.map(r => r.key));
+      const aiRows = merged.listing?.rows || [];
+
+      // Keep only AI rows that EDINET doesn't cover
+      const filteredAiRows = aiRows.filter(r => !edinetKeys.has(r.key));
+
+      // Final order: market-related rows (AI) first, then company facts (EDINET)
+      const marketKeys = ["上場市場", "業種 (33)", "業種 (17)", "指数構成", "上場日", "主幹事証券", "流通株式比率"];
+      const aiMarketRows = filteredAiRows.filter(r =>
+        marketKeys.some(k => r.key === k || r.key?.startsWith(k.split(" ")[0]))
+      );
+      const aiOtherRows = filteredAiRows.filter(r => !aiMarketRows.includes(r));
+
+      merged.listing = merged.listing || {};
+      merged.listing.rows = [...aiMarketRows, ...edinetRows, ...aiOtherRows];
+      merged._listing_source = "EDINET + Web";
     }
 
     /* ─── OVERRIDE 2: Stock price from Yahoo Finance (前日終値ベース) ─── */

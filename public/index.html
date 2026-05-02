@@ -286,6 +286,15 @@
   .info-val .small{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--text-3);
     font-weight:400;letter-spacing:.04em;margin-left:8px;}
   .info-extra{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--text-4);letter-spacing:.05em;}
+  .info-extra-edinet{
+    display:inline-flex;align-items:center;gap:5px;
+    font-family:"IBM Plex Mono",monospace;font-size:9.5px;font-weight:600;
+    letter-spacing:.14em;color:var(--gold);
+    background:var(--gold-dim);border:1px solid var(--gold-line);
+    padding:2px 8px;border-radius:3px;cursor:help;
+  }
+  .info-extra-edinet::before{content:"●";font-size:6px;color:var(--gold);}
+  .info-row-edinet .info-key{color:var(--gold);}
 
   .prime-card{background:linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%);
     border:1px solid var(--border-strong);border-radius:10px;padding:32px 28px;
@@ -2198,13 +2207,18 @@ function buildSparkSvg(values, color){
 function renderListing(d){
   const l = d.listing || {};
   $("listingAside").innerHTML = sanitize(l.aside||"—");
-  $("marketInfo").innerHTML = (l.rows||[]).map(r => `
-    <div class="info-row">
+  $("marketInfo").innerHTML = (l.rows||[]).map(r => {
+    const isEdinet = r._src === "edinet" || r.extra === "EDINET";
+    const extraDisplay = isEdinet
+      ? `<span class="info-extra-edinet" title="EDINET 有報から取得">EDINET</span>`
+      : `${esc(r.extra||"")}`;
+    return `
+    <div class="info-row${isEdinet ? ' info-row-edinet' : ''}">
       <div class="info-key">${esc(r.key)}</div>
       <div class="info-val">${esc(r.val)}${r.small?`<span class="small">${esc(r.small)}</span>`:""}</div>
-      <div class="info-extra">${esc(r.extra||"")}</div>
+      <div class="info-extra">${extraDisplay}</div>
     </div>
-  `).join("");
+  `}).join("");
 
   const m = l.market_card || {};
   $("primeEyebrow").innerHTML = esc(m.eyebrow||"▸ MARKET");

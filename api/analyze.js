@@ -11,7 +11,7 @@ import {
   postProcessPhase4,
   getJstNow
 } from "../lib/prompt.js";
-import { getFinancialsByCode } from "../lib/edinet.js";
+import { getFinancialsByCode, buildEdinetListingRows } from "../lib/edinet.js";
 import { getYahooQuote } from "../lib/yahoo-finance.js";
 import {
   getIndustryProfile,
@@ -195,6 +195,22 @@ export default async function handler(req, res) {
         shares_issued: edinetCompanyInfo.shares_issued ?? null,
         head_office: edinetCompanyInfo.head_office ?? null,
       };
+    }
+
+    /* OVERRIDE 1.5: Listing Profile rows from EDINET */
+    if (edinetCompanyInfo) {
+      const edinetRows = buildEdinetListingRows(edinetCompanyInfo);
+      const edinetKeys = new Set(edinetRows.map(r => r.key));
+      const aiRows = merged.listing?.rows || [];
+      const filteredAiRows = aiRows.filter(r => !edinetKeys.has(r.key));
+      const marketKeys = ["上場市場", "業種 (33)", "業種 (17)", "指数構成", "上場日", "主幹事証券", "流通株式比率"];
+      const aiMarketRows = filteredAiRows.filter(r =>
+        marketKeys.some(k => r.key === k || r.key?.startsWith(k.split(" ")[0]))
+      );
+      const aiOtherRows = filteredAiRows.filter(r => !aiMarketRows.includes(r));
+      merged.listing = merged.listing || {};
+      merged.listing.rows = [...aiMarketRows, ...edinetRows, ...aiOtherRows];
+      merged._listing_source = "EDINET + Web";
     }
 
     /* OVERRIDE 2: Stock price from Yahoo */
