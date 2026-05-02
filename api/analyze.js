@@ -179,6 +179,7 @@ export default async function handler(req, res) {
     const finCtx = formatFinancialsForPrompt(edinetFinancials);
     const authoritativeName = edinetCompanyInfo?.name_jp || p1.data.company.name_jp;
     const p2 = await fetchPhase(client, buildPromptPhase2(code, authoritativeName, finCtx, indCtxStr), 8);
+    p2.data._code = code;
     p2.data = postProcessPhase2(p2.data);
 
     const merged = mergeResults(p1.data, p2.data);
@@ -301,6 +302,7 @@ export default async function handler(req, res) {
       try {
         const ctxSummary = buildPhase4Context(merged);
         const p4 = await fetchPhase(client, buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, memoContextStr), 5);
+        p4.data._code = code;
         p4.data = postProcessPhase4(p4.data);
         if (p4.data?.investment_thesis) {
           merged.investment_thesis = p4.data.investment_thesis;

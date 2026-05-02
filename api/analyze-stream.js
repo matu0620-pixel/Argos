@@ -270,6 +270,7 @@ export default async function handler(req, res) {
       buildPromptPhase2(code, authoritativeName, finCtx, indCtxStr),
       8
     );
+    p2.data._code = code;
     p2.data = postProcessPhase2(p2.data);
 
     /* ─── MERGE Phase 1-3 (financial override happens here) ─── */
@@ -423,6 +424,7 @@ export default async function handler(req, res) {
           buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, memoContextStr),
           5
         );
+        p4.data._code = code;
         p4.data = postProcessPhase4(p4.data);
 
         if (p4.data?.investment_thesis) {
