@@ -269,6 +269,12 @@
   .section-title .en{font-family:"IBM Plex Serif",serif;font-style:italic;font-weight:400;
     font-size:clamp(14px, 1.5vw, 18px);color:var(--gold);margin-left:14px;letter-spacing:.02em;display:inline-block;
     opacity:.85;}
+  .ir-hp-link{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;
+    letter-spacing:.08em;color:var(--cyan-bright);text-decoration:none;
+    margin-left:18px;padding:5px 12px;
+    background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.3);
+    border-radius:4px;vertical-align:middle;transition:all .15s;}
+  .ir-hp-link:hover{background:rgba(56,189,248,.18);border-color:var(--cyan);color:var(--cyan);}
   .section-aside{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.13em;
     text-transform:uppercase;color:var(--text-3);text-align:right;line-height:1.85;
     max-width:340px;flex-shrink:0;}
@@ -1772,7 +1778,7 @@
     <div class="section-head">
       <div>
         <span class="section-num">05 — IR Pulse</span>
-        <h3 class="section-title">重要 IR ニュース<span class="en">M&amp;A · Equity · Partnership</span></h3>
+        <h3 class="section-title">重要 IR ニュース<span class="en">M&amp;A · Equity · Partnership</span><a id="newsIrLink" class="ir-hp-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">会社 IR HP →</a></h3>
       </div>
       <div class="section-aside">
         過去 18 ヶ月 / 株価インパクト推定<br/>
@@ -1782,7 +1788,7 @@
     <div class="news-list" id="newsList"></div>
     <div class="news-foot">
       ※ 推定インパクトは適時開示翌営業日終値 (TOPIX 調整後) ベース。<br/>
-      ※ 出典: TDnet / 会社 IR サイト / 決算説明資料 (AI による Web 横断取得)
+      ※ 個別開示への直接リンクは提供せず、上部「会社 IR HP →」からアクセスしてください。
     </div>
     <div class="source-chips" id="newsSources" style="margin-top:14px;"></div>
     <div class="memo-mount" data-section="ir_news"></div>
@@ -2682,29 +2688,42 @@ function renderRisks(d){
 }
 
 function renderNews(d){
-  const fallback = d.sources?.news?.find(s => isHttpUrl(s.url))?.url || "";
+  // Set IR HP link in section header (prefer EDINET-verified company_ir_url, fall back to minkabu disclosure hub)
+  const irLink = $("newsIrLink");
+  if (irLink) {
+    let hpUrl = isHttpUrl(d.company_ir_url) ? d.company_ir_url : null;
+    if (!hpUrl) {
+      // Fallback: 会社 IR chip if it looks valid; otherwise minkabu's per-stock disclosure page
+      const irChip = (d.sources?.hero || []).find(s => /会社 ?IR/.test(s.label || "") && isHttpUrl(s.url));
+      hpUrl = irChip?.url
+        || (d.code ? `https://minkabu.jp/stock/${String(d.code).slice(0,4)}/disclosure` : null);
+    }
+    if (hpUrl) {
+      irLink.href = hpUrl;
+      irLink.style.display = "inline-block";
+      irLink.textContent = isHttpUrl(d.company_ir_url) ? "会社 IR HP →" : "開示資料一覧 →";
+    } else {
+      irLink.style.display = "none";
+    }
+  }
+
   // Client-side sort defense: ensure newest first regardless of AI output order
   const sorted = (d.ir_news||[]).slice().sort((a, b) => {
     const da = String(a?.date||"").replace(/[^0-9]/g, "");
     const db = String(b?.date||"").replace(/[^0-9]/g, "");
     return db.localeCompare(da);
   });
-  $("newsList").innerHTML = sorted.map(n => {
-    const url = isHttpUrl(n.url) ? n.url : fallback;
-    const tag = url ? "a" : "div";
-    const linkAttrs = url ? `href="${esc(url)}" target="_blank" rel="noopener noreferrer"` : "";
-    const arrow = url ? `<span class="news-arrow">↗</span>` : "";
-    return `
-    <${tag} class="news-row" ${linkAttrs}>
+  $("newsList").innerHTML = sorted.map(n => `
+    <div class="news-row">
       <div class="news-date">${esc(n.date)}<span class="y">${esc(n.fy||"")}</span></div>
       <div class="news-meta"><span class="news-cat ${esc(n.cat||"other")}">${esc(cleanText(n.label||n.cat||""))}</span></div>
       <div class="news-title">
-        ${esc(cleanText(n.title))}${arrow}
+        ${esc(cleanText(n.title))}
         <span class="meta">${esc(cleanText(n.meta||""))}</span>
       </div>
       <div class="news-impact">推定インパクト<b class="${esc(n.impact_cls||"flat")}">${esc(n.impact||"—")}</b></div>
-    </${tag}>
-  `;}).join("");
+    </div>
+  `).join("");
 }
 
 function renderThesis(d){
