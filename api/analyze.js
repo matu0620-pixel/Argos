@@ -19,6 +19,7 @@ import {
   formatVolume,
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
+import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -207,6 +208,40 @@ export default async function handler(req, res) {
         shares_issued: edinetCompanyInfo.shares_issued ?? null,
         head_office: edinetCompanyInfo.head_office ?? null,
       };
+    }
+
+    /* OVERRIDE 1.6: Verify / discover company IR URL using EDINET-extracted name */
+    if (edinetCompanyInfo?.name_jp) {
+      const aiUrl = merged.company_ir_url || null;
+      const matchesAi = aiUrl && urlMatchesCompany(aiUrl, edinetCompanyInfo.name_en, edinetCompanyInfo.name_jp);
+      if (matchesAi) {
+        merged._ir_url_source = "phase1-verified";
+      } else {
+        const verifiedUrl = await findCompanyIrUrl(client, {
+          name_jp: edinetCompanyInfo.name_jp,
+          name_en: edinetCompanyInfo.name_en,
+          code,
+        });
+        if (verifiedUrl) {
+          merged.company_ir_url = verifiedUrl;
+          merged._ir_url_source = "edinet-verified-search";
+        } else {
+          merged.company_ir_url = null;
+          merged._ir_url_source = "fallback-needed";
+        }
+      }
+      // Sync hero "会社 IR" chip
+      if (Array.isArray(merged.sources?.hero)) {
+        const irChip = merged.sources.hero.find(c => /会社 ?IR/.test(c.label || ""));
+        if (irChip) {
+          if (merged.company_ir_url) {
+            irChip.url = merged.company_ir_url;
+          } else {
+            const idx = merged.sources.hero.indexOf(irChip);
+            if (idx >= 0) merged.sources.hero.splice(idx, 1);
+          }
+        }
+      }
     }
 
     /* OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria */

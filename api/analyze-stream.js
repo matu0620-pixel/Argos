@@ -21,6 +21,7 @@ import {
   formatVolume,
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
+import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
 import {
   getIndustryProfile,
   detectIndustryByKeywords,
@@ -301,6 +302,54 @@ export default async function handler(req, res) {
         shares_issued: edinetCompanyInfo.shares_issued ?? null,
         head_office: edinetCompanyInfo.head_office ?? null,
       };
+    }
+
+    /* ─── OVERRIDE 1.6: Verify / discover company IR URL using EDINET-extracted name ─── */
+    // Prevents Phase 1 AI from defaulting to a hardcoded URL (e.g. Infomart) for the wrong company.
+    // Strategy:
+    //   1. If Phase 1's URL hostname matches the EDINET name → keep it (cheap path)
+    //   2. Otherwise → focused web search using EDINET's authoritative name to find the real URL
+    if (edinetCompanyInfo?.name_jp) {
+      const aiUrl = merged.company_ir_url || null;
+      const matchesAi = aiUrl && urlMatchesCompany(aiUrl, edinetCompanyInfo.name_en, edinetCompanyInfo.name_jp);
+
+      if (matchesAi) {
+        // Phase 1's URL passes the heuristic — keep it
+        merged._ir_url_source = "phase1-verified";
+        send("ir_url_verified", { url: aiUrl, source: "phase1-heuristic" });
+      } else {
+        // Phase 1's URL doesn't match the EDINET company → run focused search
+        send("ir_url_searching", { name: edinetCompanyInfo.name_jp });
+        const verifiedUrl = await findCompanyIrUrl(client, {
+          name_jp: edinetCompanyInfo.name_jp,
+          name_en: edinetCompanyInfo.name_en,
+          code,
+        });
+        if (verifiedUrl) {
+          merged.company_ir_url = verifiedUrl;
+          merged._ir_url_source = "edinet-verified-search";
+          send("ir_url_verified", { url: verifiedUrl, source: "edinet-verified-search" });
+        } else {
+          // Search couldn't verify — drop the URL so frontend uses the minkabu fallback
+          merged.company_ir_url = null;
+          merged._ir_url_source = "fallback-needed";
+          send("ir_url_unverified", { reason: "no-verified-url-found" });
+        }
+      }
+
+      // Sync the hero "会社 IR" chip with the (possibly updated) company_ir_url
+      if (Array.isArray(merged.sources?.hero)) {
+        const irChip = merged.sources.hero.find(c => /会社 ?IR/.test(c.label || ""));
+        if (irChip) {
+          if (merged.company_ir_url) {
+            irChip.url = merged.company_ir_url;
+          } else {
+            // Drop the chip rather than show wrong URL — frontend falls back via minkabu
+            const idx = merged.sources.hero.indexOf(irChip);
+            if (idx >= 0) merged.sources.hero.splice(idx, 1);
+          }
+        }
+      }
     }
 
     /* ─── OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria ─── */
