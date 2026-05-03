@@ -125,11 +125,12 @@ function formatFinancialsForPrompt(financialsAnnual) {
 }
 
 export default async function handler(req, res) {
-  const code = String(req.query?.code || "").trim();
+  const code = String(req.query?.code || "").trim().toUpperCase();
   const force = String(req.query?.force || "") === "1";
 
-  if (!/^\d{4,5}$/.test(code)) {
-    res.status(400).json({ error: "invalid_code", message: "証券コードは 4-5 桁の数字" });
+  // Accept both legacy (4-5 digit) and new (3 digit + letter, e.g. 173A) TSE codes
+  if (!/^(\d{4,5}|\d{3}[A-Z])$/.test(code)) {
+    res.status(400).json({ error: "invalid_code", message: "証券コードは 4-5 桁の数字、または 3 桁数字 + 1 文字英字 (例: 173A)" });
     return;
   }
   const apiKey = process.env.ANTHROPIC_API_KEY;
