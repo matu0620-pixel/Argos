@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="theme-color" content="#02060F"/>
 <title>ARGOS — Institutional Equity Intelligence</title>
-<meta name="argos-build-version" content="2.4.0-thesis-always-on"/>
+<meta name="argos-build-version" content="2.5.0-shikiho-tokushoku"/>
 <meta name="argos-build-date" content="2026-05-03"/>
 <meta name="description" content="ARGOS · 機関投資家向け日本株インテリジェンス。EDINET 連携の財務分析、競争環境、投資テーゼを 2 分で生成。"/>
 <meta property="og:title" content="ARGOS — Institutional Equity Intelligence"/>
@@ -1814,6 +1814,7 @@
       <h2 class="company-name" id="companyName">—</h2>
       <div class="company-name-en" id="companyNameEn">—</div>
       <p class="company-blurb" id="companyBlurb">—</p>
+      <div id="blurbSourceBadge" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);margin-top:-8px;margin-bottom:14px;padding-left:14px;"></div>
       <div class="company-tags" id="companyTags"></div>
       <div class="source-chips" id="heroSources"></div>
     </div>
@@ -2412,6 +2413,27 @@ function renderHero(d){
   $("companyName").textContent = cleanText(d.company?.name_jp) || "—";
   $("companyNameEn").textContent = cleanText(d.company?.name_en) || "—";
   $("companyBlurb").textContent = cleanText(d.company?.blurb) || "—";
+
+  // Blurb source indicator (Shikiho 特色 vs EDINET vs AI-generated)
+  const blurbSourceEl = $("blurbSourceBadge");
+  if (blurbSourceEl) {
+    const src = d._blurb_source;
+    if (src && src.startsWith("Shikiho")) {
+      blurbSourceEl.innerHTML = `◆ 出典: 会社四季報「特色」`;
+      blurbSourceEl.style.color = "var(--gold)";
+      blurbSourceEl.style.display = "block";
+    } else if (src === "EDINET") {
+      blurbSourceEl.innerHTML = `◆ 出典: EDINET 有報「事業の内容」`;
+      blurbSourceEl.style.color = "var(--cyan)";
+      blurbSourceEl.style.display = "block";
+    } else if (d.company?.blurb && d.company.blurb !== "—") {
+      blurbSourceEl.innerHTML = `◆ 出典: AI 生成 (Phase 1)`;
+      blurbSourceEl.style.color = "var(--text-4)";
+      blurbSourceEl.style.display = "block";
+    } else {
+      blurbSourceEl.style.display = "none";
+    }
+  }
 
   // Build company tag list — AI tags + EDINET-derived facts (when available)
   const aiTags = (d.company?.tags||[]).map(t => `<span class="tag">${esc(cleanText(t))}</span>`).join("");
@@ -3447,6 +3469,29 @@ async function fetchCompanyData(code, onProgress, onPartial){
       try {
         const data = JSON.parse(e.data);
         onProgress?.({ stage: "verify", message: `✓ 会社 IR URL 確定: ${data.url}` });
+      } catch {}
+    });
+
+    // Shikiho (会社四季報 特色) fetch events
+    eventSource.addEventListener("shikiho_searching", e => {
+      onProgress?.({ stage: "verify", message: `🔍 会社四季報の「特色」欄を取得中...` });
+    });
+    eventSource.addEventListener("shikiho_found", e => {
+      try {
+        const data = JSON.parse(e.data);
+        onProgress?.({
+          stage: "verify",
+          message: `✓ 四季報「特色」取得 (${data.length} 字, ${data.source}, 信頼度 ${data.confidence})`,
+        });
+      } catch {}
+    });
+    eventSource.addEventListener("shikiho_not_found", e => {
+      try {
+        const data = JSON.parse(e.data);
+        onProgress?.({
+          stage: "verify",
+          message: `⚠ 四季報「特色」未取得 (${data.reason}) — Phase 1 のデータを使用`,
+        });
       } catch {}
     });
 

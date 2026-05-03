@@ -24,6 +24,7 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
+import { fetchShikihoTokushoku } from "../lib/shikiho-tokushoku.js";
 import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
@@ -312,6 +313,35 @@ export default async function handler(req, res) {
         shares_issued: edinetCompanyInfo.shares_issued ?? null,
         head_office: edinetCompanyInfo.head_office ?? null,
       };
+    }
+
+    /* ─── OVERRIDE 1.5b: Fetch Shikiho 特色 — preferred blurb source ───
+       会社四季報の「特色」欄は、機関投資家が標準で参照する銘柄概要。
+       AI 生成の長い説明より、短く factual な四季報スタイルを優先する。
+       ────────────────────────────────────────────────────────────── */
+    send("shikiho_searching", { code });
+    try {
+      const shikihoResult = await fetchShikihoTokushoku(client, {
+        code,
+        name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
+      });
+      if (shikihoResult.tokushoku && shikihoResult.tokushoku.length >= 20) {
+        // Override with Shikiho 特色 (preferred over EDINET 有報の事業概要)
+        merged.company = merged.company || {};
+        merged.company.blurb = shikihoResult.tokushoku;
+        merged._blurb_source = `Shikiho (${shikihoResult.source})`;
+        merged.company._shikiho_tokushoku = shikihoResult.tokushoku;
+        send("shikiho_found", {
+          length: shikihoResult.tokushoku.length,
+          source: shikihoResult.source,
+          confidence: shikihoResult.confidence,
+        });
+      } else {
+        send("shikiho_not_found", { reason: "no-tokushoku-extracted" });
+      }
+    } catch (shikihoErr) {
+      console.warn(`[Shikiho] fetch failed for ${code}: ${shikihoErr.message}`);
+      send("shikiho_not_found", { reason: shikihoErr.message });
     }
 
     /* ─── OVERRIDE 1.6: Verify / discover company IR URL using EDINET-extracted name ─── */

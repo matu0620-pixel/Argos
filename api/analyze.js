@@ -22,6 +22,7 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
+import { fetchShikihoTokushoku } from "../lib/shikiho-tokushoku.js";
 import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
@@ -217,6 +218,22 @@ export default async function handler(req, res) {
         shares_issued: edinetCompanyInfo.shares_issued ?? null,
         head_office: edinetCompanyInfo.head_office ?? null,
       };
+    }
+
+    // Shikiho 特色 (preferred blurb source)
+    try {
+      const shikihoResult = await fetchShikihoTokushoku(client, {
+        code,
+        name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
+      });
+      if (shikihoResult.tokushoku && shikihoResult.tokushoku.length >= 20) {
+        merged.company = merged.company || {};
+        merged.company.blurb = shikihoResult.tokushoku;
+        merged._blurb_source = `Shikiho (${shikihoResult.source})`;
+        merged.company._shikiho_tokushoku = shikihoResult.tokushoku;
+      }
+    } catch (shikihoErr) {
+      console.warn(`[Shikiho] fetch failed for ${code}: ${shikihoErr.message}`);
     }
 
     /* OVERRIDE 1.6: Verify / discover company IR URL using EDINET-extracted name */
