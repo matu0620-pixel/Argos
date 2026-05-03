@@ -1,17 +1,25 @@
 {
-  "version": "2.1.0",
+  "version": "2.4.0",
   "build_date": "2026-05-03",
   "features": {
     "ir_news_section": false,
     "phase5_report_authoring": true,
     "institutional_pdf_export": true,
+    "thesis_always_on": true,
+    "thesis_coverage_tiers": true,
+    "thesis_karte_fallback": true,
+    "thesis_auto_save_to_karte": true,
+    "thesis_regen_rate_limit": "24h, max 3 per stock",
     "history_sidebar": true,
     "karte_system": true,
     "memo_system": false
   },
-  "removed_files": [
-    "api/memos.js",
-    "lib/ir-news-finder.js"
-  ],
-  "build_signature": "argos-2.1.0-institutional-pdf-no-ir-news"
+  "coverage_tiers": {
+    "full":    "EDINET 3+ 期 + カルテ 3+ 件 (♛ FULL COVERAGE)",
+    "edinet":  "EDINET 3+ 期 のみ (✓ EDINET-VERIFIED)",
+    "karte":   "カルテ 3+ 件 のみ (◆ KARTE-INFORMED)",
+    "limited": "EDINET 1-2 期 OR カルテ 1-2 件 (○ LIMITED DATA)",
+    "draft":   "どちらも無し → Phase 1-3 + 業界知識 (◇ INITIAL DRAFT)"
+  },
+  "build_signature": "argos-2.4.0-thesis-always-on"
 }

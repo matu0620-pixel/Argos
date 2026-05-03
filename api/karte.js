@@ -16,6 +16,8 @@ import {
   updateMeta,
   computeStats,
   migrateMemosToKarte,
+  checkThesisRegenAllowed,
+  recordThesisRegen,
   KV_AVAILABLE,
   ENTRY_KINDS,
   VERDICT_OPTIONS,
@@ -77,7 +79,15 @@ export default async function handler(req, res) {
         }
         // Default: add entry
         const entry = await addEntry(code, body);
-        return res.status(201).json({ entry });
+
+        // After adding a user-authored entry, check if thesis regen is allowed
+        // (excluding ai_thesis_snapshot kind to avoid recursive triggering)
+        let regenInfo = null;
+        if (entry.kind !== "ai_thesis_snapshot") {
+          regenInfo = await checkThesisRegenAllowed(code);
+        }
+
+        return res.status(201).json({ entry, regen: regenInfo });
       }
 
       case "PATCH": {

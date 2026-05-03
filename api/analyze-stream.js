@@ -38,6 +38,10 @@ import {
   getKarte,
   buildKarteContextForPrompt,
   getKarteVersion,
+  countUserAuthoredEntries,
+  buildThesisSnapshotEntry,
+  addEntry,
+  recordThesisRegen,
 } from "../lib/karte.js";
 
 const cache = new Map();
@@ -484,38 +488,103 @@ export default async function handler(req, res) {
       merged._edinet_error = edinetErrorMessage;
     }
 
-    /* ─── PHASE 4: Institutional Investment Thesis (synthesis) ─── */
+    /* ─── PHASE 4: Institutional Investment Thesis (synthesis) ───
+       Sources: EDINET financials (≥3 years) AND/OR Karte user entries (≥3)
+       At least ONE of these must be available.
+       ──────────────────────────────────────────────────────────── */
     let p4SearchCount = 0;
-    if (edinetFinancials && edinetFinancials.length >= 3) {
-      // Only run Phase 4 if we have solid financial data to anchor the thesis
-      send("phase", {
-        num: 4, total: 4,
-        label: "Phase 4: 機関投資家向け投資テーゼ作成",
-        sources: "Phase 1-3 集約 / 業種中央値 / 過去バリュエーションレンジ"
-      });
+    let karteContextStr = null;
+    let karteEntryCount = 0;
+    let userAuthoredKarteCount = 0;
+    let karteForSnapshot = null;  // Hold karte object to add thesis snapshot after generation
 
-      // Load karte entries — feed into Phase 4 context
-      let karteContextStr = null;
-      let karteEntryCount = 0;
-      try {
-        if (KV_AVAILABLE) {
-          const karte = await getKarte(code);
-          karteEntryCount = karte.entries?.length || 0;
-          karteContextStr = buildKarteContextForPrompt(karte, { maxEntries: 15 });
-          if (karteContextStr) {
-            send("karte_context_loaded", { count: karteEntryCount, used: Math.min(karteEntryCount, 15) });
-          }
+    // Always try to load karte (even when EDINET succeeds, karte enriches the thesis)
+    try {
+      if (KV_AVAILABLE) {
+        karteForSnapshot = await getKarte(code);
+        karteEntryCount = karteForSnapshot.entries?.length || 0;
+        userAuthoredKarteCount = countUserAuthoredEntries(karteForSnapshot);
+        karteContextStr = buildKarteContextForPrompt(karteForSnapshot, { maxEntries: 15 });
+        if (karteContextStr) {
+          send("karte_context_loaded", {
+            count: karteEntryCount,
+            user_authored: userAuthoredKarteCount,
+            used: Math.min(karteEntryCount, 15)
+          });
         }
-      } catch (kErr) {
-        console.warn(`[ARGOS karte] load failed for ${code}:`, kErr.message);
-        // Non-fatal — continue without karte
       }
+    } catch (kErr) {
+      console.warn(`[ARGOS karte] load failed for ${code}:`, kErr.message);
+    }
+
+    // ─── Coverage tier classification ───
+    // Determines confidence label and badge displayed in UI/PDF.
+    // Tiers:
+    //   "full"        — EDINET ≥ 3 期 + カルテ ≥ 3 件   → 🏆 FULL COVERAGE
+    //   "edinet"      — EDINET ≥ 3 期 のみ              → 🟢 EDINET-VERIFIED
+    //   "karte"       — カルテ ≥ 3 件 のみ              → 🔵 KARTE-INFORMED
+    //   "limited"     — EDINET 1-2 期 OR カルテ 1-2 件   → 🟡 LIMITED DATA
+    //   "draft"       — どちらも無し                     → 🟡 INITIAL DRAFT
+    const hasFullEdinet = edinetFinancials && edinetFinancials.length >= 3;
+    const hasPartialEdinet = edinetFinancials && edinetFinancials.length >= 1 && edinetFinancials.length < 3;
+    const hasFullKarte = userAuthoredKarteCount >= 3;
+    const hasPartialKarte = userAuthoredKarteCount >= 1 && userAuthoredKarteCount < 3;
+
+    let coverageTier;
+    if (hasFullEdinet && hasFullKarte) coverageTier = "full";
+    else if (hasFullEdinet) coverageTier = "edinet";
+    else if (hasFullKarte) coverageTier = "karte";
+    else if (hasPartialEdinet || hasPartialKarte) coverageTier = "limited";
+    else coverageTier = "draft";
+
+    // Conviction defaults by tier (the AI can override with its own assessment)
+    const defaultConviction = {
+      full: "high",
+      edinet: "high",
+      karte: "medium",
+      limited: "medium",
+      draft: "low",
+    }[coverageTier];
+
+    // For backward compat
+    const thesisSource = ({
+      full: "edinet+karte", edinet: "edinet", karte: "karte",
+      limited: "limited", draft: "draft",
+    })[coverageTier];
+
+    // Always run Phase 4 — even with no data we generate an "initial draft" thesis
+    {
+      const tierLabels = {
+        full:    "Phase 4: 投資テーゼ作成 (FULL COVERAGE)",
+        edinet:  "Phase 4: 投資テーゼ作成 (EDINET-VERIFIED)",
+        karte:   "Phase 4: 投資テーゼ作成 (KARTE-INFORMED)",
+        limited: "Phase 4: 投資テーゼ作成 (LIMITED DATA)",
+        draft:   "Phase 4: 投資テーゼ初期仮説作成 (INITIAL DRAFT)",
+      };
+      const tierSources = {
+        full:    `EDINET ${edinetFinancials.length} 期 + カルテ ${userAuthoredKarteCount} 件 + 業種中央値`,
+        edinet:  `EDINET ${edinetFinancials.length} 期 + 業種中央値 + 過去バリュエーション`,
+        karte:   `カルテ ${userAuthoredKarteCount} 件 + 業種中央値`,
+        limited: `EDINET ${edinetFinancials?.length || 0} 期 / カルテ ${userAuthoredKarteCount} 件 + 業界知識`,
+        draft:   "Phase 1-3 + 業界知識 + Web 検索 (★ 初期仮説)",
+      };
+      send("phase", {
+        num: 4, total: 5,
+        label: tierLabels[coverageTier],
+        sources: tierSources[coverageTier],
+        coverage_tier: coverageTier,
+      });
 
       try {
         const ctxSummary = buildPhase4Context(merged);
         const p4 = await streamPhase(
           client, send, "phase4",
-          buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, null, karteContextStr),
+          buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, null, karteContextStr, {
+            coverageTier,
+            edinetYears: edinetFinancials?.length || 0,
+            karteEntries: userAuthoredKarteCount,
+            defaultConviction,
+          }),
           5
         );
         p4.data._code = code;
@@ -523,38 +592,73 @@ export default async function handler(req, res) {
 
         if (p4.data?.investment_thesis) {
           merged.investment_thesis = p4.data.investment_thesis;
+          merged.investment_thesis._source = thesisSource;
+          merged.investment_thesis._coverage_tier = coverageTier;
+          merged.investment_thesis._edinet_years = edinetFinancials?.length || 0;
+          merged.investment_thesis._karte_count = userAuthoredKarteCount;
+          merged.investment_thesis.available = true;
+
+          // For draft tier, force probability to 25/50/25 if AI deviated
+          if (coverageTier === "draft" && merged.investment_thesis.scenarios) {
+            const sc = merged.investment_thesis.scenarios;
+            if (sc.bull) sc.bull.probability = sc.bull.probability ?? 25;
+            if (sc.base) sc.base.probability = sc.base.probability ?? 50;
+            if (sc.bear) sc.bear.probability = sc.bear.probability ?? 25;
+          }
+
           if (p4.data.investment_thesis.sources && Array.isArray(p4.data.investment_thesis.sources)) {
             merged.sources = merged.sources || {};
             merged.sources.thesis = p4.data.investment_thesis.sources;
           }
-          // Tag the thesis with memo influence flag for UI badge
-          if (memoContextStr) {
-            merged.investment_thesis._memo_influenced = true;
-            merged.investment_thesis._memo_count = memoCount;
+          if (karteContextStr) {
+            merged.investment_thesis._karte_influenced = true;
           }
         }
         p4SearchCount = p4.searchCount || 0;
         if (p4.repaired) merged._truncated = true;
+
+        // Record this thesis regeneration for rate limiting (24h, max 3)
+        if (KV_AVAILABLE) {
+          try { await recordThesisRegen(code); } catch (e) { /* non-fatal */ }
+        }
+
+        // ─── Auto-save Thesis to Karte (history) ───
+        if (KV_AVAILABLE && merged.investment_thesis?.scenarios && karteForSnapshot) {
+          try {
+            const snapshotEntry = buildThesisSnapshotEntry(merged.investment_thesis, {
+              code,
+              price: merged.price,
+              generatedAt: new Date().toISOString(),
+              coverageTier,
+            });
+            if (snapshotEntry) {
+              await addEntry(code, snapshotEntry);
+              send("thesis_saved_to_karte", { kind: "ai_thesis_snapshot", coverage_tier: coverageTier });
+            }
+          } catch (snapErr) {
+            console.warn(`[ARGOS karte] thesis snapshot save failed for ${code}:`, snapErr.message);
+          }
+        }
       } catch (p4Err) {
         console.warn(`[Phase4] Failed for ${code}:`, p4Err.message);
-        // If Phase 4 fails, mark thesis as unavailable but don't fail the whole request
+        // Even on AI error, provide a minimal fallback thesis structure
         merged.investment_thesis = {
-          available: false,
-          reason: `投資テーゼ作成中にエラーが発生しました: ${p4Err.message}`
+          available: true,
+          _source: thesisSource,
+          _coverage_tier: "draft",
+          _generation_error: p4Err.message,
+          summary: {
+            conviction: "low",
+            thesis_one_liner: `${authoritativeName || code} の投資テーゼ生成中にエラーが発生しました。Phase 1-3 のデータを参照してください。`,
+          },
+          scenarios: {
+            bull: { probability: 25, summary: "上昇シナリオ", drivers: ["業界成長", "Web 検索ベース"], implied_return: "—" },
+            base: { probability: 50, summary: "中立シナリオ", drivers: ["業界平均"], implied_return: "—" },
+            bear: { probability: 25, summary: "下落シナリオ", drivers: ["景気低迷"], implied_return: "—" },
+          },
         };
         send("phase4_failed", { message: p4Err.message });
       }
-    } else {
-      // No EDINET data → no thesis (would be based on hallucinated numbers)
-      merged.investment_thesis = {
-        available: false,
-        reason: edinetFinancials
-          ? "EDINET 財務データが 3 期未満のため、投資テーゼ作成に必要な比較データが不足しています"
-          : "EDINET 財務データを取得できなかったため、投資テーゼを作成できません"
-      };
-      send("phase4_skipped", {
-        message: "投資テーゼは EDINET 財務データが必要です — スキップしました"
-      });
     }
 
     // ─── Phase 5: Report Authoring (PDF レポート用追加コメント生成) ───

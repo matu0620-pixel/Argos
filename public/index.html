@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="theme-color" content="#02060F"/>
 <title>ARGOS — Institutional Equity Intelligence</title>
-<meta name="argos-build-version" content="2.1.0-institutional-pdf-no-ir-news"/>
+<meta name="argos-build-version" content="2.4.0-thesis-always-on"/>
 <meta name="argos-build-date" content="2026-05-03"/>
 <meta name="description" content="ARGOS · 機関投資家向け日本株インテリジェンス。EDINET 連携の財務分析、競争環境、投資テーゼを 2 分で生成。"/>
 <meta property="og:title" content="ARGOS — Institutional Equity Intelligence"/>
@@ -2040,6 +2040,7 @@
         EDINET / 業種中央値 / 過去レンジ<br/>
         <span style="color:var(--text-4);">※ 12 ヶ月ホライズン</span><br/>
         <span id="thesisIndustryLabel" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--cyan);letter-spacing:.1em;text-transform:uppercase;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);padding:3px 8px;border-radius:3px;margin-top:6px;display:inline-block;"></span>
+        <span id="thesisSourceBadge" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--gold);letter-spacing:.1em;text-transform:uppercase;background:var(--gold-dim);border:1px solid var(--gold-line);padding:3px 8px;border-radius:3px;margin-top:6px;margin-left:6px;display:inline-block;"></span>
       </div>
     </div>
 
@@ -2956,6 +2957,34 @@ function renderThesis(d){
     indLabel.style.display = "none";
   }
 
+  // Coverage tier badge — 5 levels: full / edinet / karte / limited / draft
+  const sourceBadge = $("thesisSourceBadge");
+  if (sourceBadge) {
+    const tier = it._coverage_tier || it._source;
+    const eyrs = it._edinet_years ?? 0;
+    const kcnt = it._karte_count ?? 0;
+
+    const TIER_CONFIG = {
+      full:    { label: "♛ FULL COVERAGE",   color: "#D4A24E", bg: "rgba(212,162,78,.12)",  border: "rgba(212,162,78,.45)" },
+      "edinet+karte": { label: "♛ FULL COVERAGE", color: "#D4A24E", bg: "rgba(212,162,78,.12)",  border: "rgba(212,162,78,.45)" },
+      edinet:  { label: "✓ EDINET-VERIFIED", color: "#34D399", bg: "rgba(52,211,153,.10)",  border: "rgba(52,211,153,.40)" },
+      karte:   { label: "◆ KARTE-INFORMED",  color: "#38BDF8", bg: "rgba(56,189,248,.08)",  border: "rgba(56,189,248,.40)" },
+      limited: { label: "○ LIMITED DATA",    color: "#FBBF24", bg: "rgba(251,191,36,.10)",  border: "rgba(251,191,36,.40)" },
+      draft:   { label: "◇ INITIAL DRAFT",   color: "#FBBF24", bg: "rgba(251,191,36,.10)",  border: "rgba(251,191,36,.40)" },
+    };
+    const cfg = TIER_CONFIG[tier];
+    if (cfg) {
+      const stats = `EDINET ${eyrs}期 · カルテ ${kcnt}件`;
+      sourceBadge.textContent = `${cfg.label}  ·  ${stats}`;
+      sourceBadge.style.display = "inline-block";
+      sourceBadge.style.color = cfg.color;
+      sourceBadge.style.borderColor = cfg.border;
+      sourceBadge.style.background = cfg.bg;
+    } else {
+      sourceBadge.style.display = "none";
+    }
+  }
+
   // 1. Investment Summary
   const conv = String(sm.conviction || "neutral").toLowerCase();
   const convClass = ["high_long","moderate_long","neutral","moderate_short","high_short"].includes(conv) ? conv : "neutral";
@@ -3826,10 +3855,11 @@ const KarteSystem = (function(){
   let priceContext = { price: null, change_pct: null };
 
   const KIND_LABELS = {
-    judgment:       { ja: "投資判断",  en: "JUDGMENT" },
-    lesson:         { ja: "学び",      en: "LESSON" },
-    prediction:     { ja: "予測",      en: "PREDICTION" },
-    earnings_react: { ja: "決算反応",  en: "EARNINGS REACTION" },
+    judgment:       { ja: "投資判断",       en: "JUDGMENT" },
+    lesson:         { ja: "学び",           en: "LESSON" },
+    prediction:     { ja: "予測",           en: "PREDICTION" },
+    earnings_react: { ja: "決算反応",       en: "EARNINGS REACTION" },
+    ai_thesis_snapshot: { ja: "AI Thesis", en: "AI THESIS" },
   };
   const VERDICT_LABELS = {
     buy: "BUY", accumulate: "ACCUMULATE", hold: "HOLD",
@@ -4216,6 +4246,28 @@ const KarteSystem = (function(){
       } else {
         const data = await api("POST", currentCode, payload, { op: "entry" });
         karte.entries.unshift(data.entry);
+        // Show regen availability message
+        if (data.regen) {
+          const r = data.regen;
+          if (r.allowed) {
+            const used = r.count;
+            const remaining = 3 - used;
+            if (window.showAlert) {
+              window.showAlert(
+                `✓ カルテに保存しました。Thesis 再生成: あと ${remaining} 回 / 24h ` +
+                `<button onclick="window.regenThesis()" style="margin-left:8px;padding:3px 10px;background:var(--gold-dim);border:1px solid var(--gold-line);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;">▸ Thesis を再生成</button>`,
+                "info"
+              );
+            }
+          } else {
+            if (window.showAlert) {
+              window.showAlert(
+                `✓ カルテに保存しました。<br/>※ Thesis 再生成は 24h で 3 回までの上限に達しました。${r.resets_at ? new Date(r.resets_at).toLocaleString("ja-JP") + " にリセット" : ""}`,
+                "info"
+              );
+            }
+          }
+        }
       }
       $("karteForm").style.display = "none";
       editingId = null;
@@ -4226,6 +4278,28 @@ const KarteSystem = (function(){
       if (err.hint) msg += ` (${err.hint})`;
       errEl.textContent = msg;
     }
+  }
+
+  // Trigger Thesis regeneration (called from the alert button)
+  async function regenThesis() {
+    if (!currentCode) return;
+    if (window.showAlert) {
+      window.showAlert("◆ Thesis を再生成中... (60-90 秒)", "info");
+    }
+    // Simply re-trigger the analysis flow for the current code
+    if (window.runAnalysis) {
+      window.runAnalysis(currentCode);
+    } else {
+      const inp = document.getElementById("codeInput");
+      if (inp) {
+        inp.value = currentCode;
+        const btn = document.getElementById("analyzeBtn");
+        if (btn) btn.click();
+      }
+    }
+  }
+  if (typeof window !== "undefined") {
+    window.regenThesis = regenThesis;
   }
 
   async function saveMeta() {

@@ -36,6 +36,10 @@ import {
   getKarte,
   buildKarteContextForPrompt,
   getKarteVersion,
+  countUserAuthoredEntries,
+  buildThesisSnapshotEntry,
+  addEntry,
+  recordThesisRegen,
 } from "../lib/karte.js";
 
 const cache = new Map();
@@ -352,46 +356,112 @@ export default async function handler(req, res) {
       merged._edinet_error = edinetErrorMessage;
     }
 
-    // Phase 4 (Investment Thesis) — only if EDINET data is solid
-    if (edinetFinancials && edinetFinancials.length >= 3) {
-      // Load karte entries (best-effort)
-      let karteContextStr = null;
-      try {
-        if (KV_AVAILABLE) {
-          const karte = await getKarte(code);
-          karteContextStr = buildKarteContextForPrompt(karte, { maxEntries: 15 });
+    // Phase 4 (Investment Thesis) — sources: EDINET ≥3 期 OR karte ≥3 件
+    let karteContextStr = null;
+    let karteEntryCount = 0;
+    let userAuthoredKarteCount = 0;
+    let karteForSnapshot = null;
+
+    try {
+      if (KV_AVAILABLE) {
+        karteForSnapshot = await getKarte(code);
+        karteEntryCount = karteForSnapshot.entries?.length || 0;
+        userAuthoredKarteCount = countUserAuthoredEntries(karteForSnapshot);
+        karteContextStr = buildKarteContextForPrompt(karteForSnapshot, { maxEntries: 15 });
+      }
+    } catch (kErr) {
+      console.warn(`[ARGOS karte] non-stream load failed for ${code}:`, kErr.message);
+    }
+
+    // Coverage tier classification (matches analyze-stream.js)
+    const hasFullEdinet = edinetFinancials && edinetFinancials.length >= 3;
+    const hasPartialEdinet = edinetFinancials && edinetFinancials.length >= 1 && edinetFinancials.length < 3;
+    const hasFullKarte = userAuthoredKarteCount >= 3;
+    const hasPartialKarte = userAuthoredKarteCount >= 1 && userAuthoredKarteCount < 3;
+
+    let coverageTier;
+    if (hasFullEdinet && hasFullKarte) coverageTier = "full";
+    else if (hasFullEdinet) coverageTier = "edinet";
+    else if (hasFullKarte) coverageTier = "karte";
+    else if (hasPartialEdinet || hasPartialKarte) coverageTier = "limited";
+    else coverageTier = "draft";
+
+    const defaultConviction = {
+      full: "high", edinet: "high", karte: "medium", limited: "medium", draft: "low",
+    }[coverageTier];
+
+    const thesisSource = ({
+      full: "edinet+karte", edinet: "edinet", karte: "karte",
+      limited: "limited", draft: "draft",
+    })[coverageTier];
+
+    // Always run Phase 4 — every stock gets a thesis (initial draft if no data)
+    try {
+      const ctxSummary = buildPhase4Context(merged);
+      const p4 = await fetchPhase(client, buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, null, karteContextStr, {
+        coverageTier,
+        edinetYears: edinetFinancials?.length || 0,
+        karteEntries: userAuthoredKarteCount,
+        defaultConviction,
+      }), 5);
+      p4.data._code = code;
+      p4.data = postProcessPhase4(p4.data);
+      if (p4.data?.investment_thesis) {
+        merged.investment_thesis = p4.data.investment_thesis;
+        merged.investment_thesis._source = thesisSource;
+        merged.investment_thesis._coverage_tier = coverageTier;
+        merged.investment_thesis._edinet_years = edinetFinancials?.length || 0;
+        merged.investment_thesis._karte_count = userAuthoredKarteCount;
+        merged.investment_thesis.available = true;
+
+        if (coverageTier === "draft" && merged.investment_thesis.scenarios) {
+          const sc = merged.investment_thesis.scenarios;
+          if (sc.bull) sc.bull.probability = sc.bull.probability ?? 25;
+          if (sc.base) sc.base.probability = sc.base.probability ?? 50;
+          if (sc.bear) sc.bear.probability = sc.bear.probability ?? 25;
         }
-      } catch (kErr) {
-        console.warn(`[ARGOS karte] non-stream load failed for ${code}:`, kErr.message);
+
+        if (p4.data.investment_thesis.sources && Array.isArray(p4.data.investment_thesis.sources)) {
+          merged.sources = merged.sources || {};
+          merged.sources.thesis = p4.data.investment_thesis.sources;
+        }
+        if (karteContextStr) {
+          merged.investment_thesis._karte_influenced = true;
+        }
+      }
+      if (p4.repaired) merged._truncated = true;
+
+      // Record thesis regeneration timestamp
+      if (KV_AVAILABLE) {
+        try { await recordThesisRegen(code); } catch (e) { /* non-fatal */ }
       }
 
-      try {
-        const ctxSummary = buildPhase4Context(merged);
-        const p4 = await fetchPhase(client, buildPromptPhase4(code, authoritativeName, ctxSummary, indCtxStr, null, karteContextStr), 5);
-        p4.data._code = code;
-        p4.data = postProcessPhase4(p4.data);
-        if (p4.data?.investment_thesis) {
-          merged.investment_thesis = p4.data.investment_thesis;
-          if (p4.data.investment_thesis.sources && Array.isArray(p4.data.investment_thesis.sources)) {
-            merged.sources = merged.sources || {};
-            merged.sources.thesis = p4.data.investment_thesis.sources;
-          }
-          if (memoContextStr) {
-            merged.investment_thesis._memo_influenced = true;
-            merged.investment_thesis._memo_count = memoCount;
-          }
+      // Auto-save Thesis to Karte
+      if (KV_AVAILABLE && merged.investment_thesis?.scenarios && karteForSnapshot) {
+        try {
+          const snapshotEntry = buildThesisSnapshotEntry(merged.investment_thesis, {
+            code, price: merged.price,
+            generatedAt: new Date().toISOString(),
+            coverageTier,
+          });
+          if (snapshotEntry) await addEntry(code, snapshotEntry);
+        } catch (snapErr) {
+          console.warn(`[ARGOS karte] thesis snapshot save failed:`, snapErr.message);
         }
-        if (p4.repaired) merged._truncated = true;
-      } catch (p4Err) {
-        console.warn(`[Phase4] Failed for ${code}:`, p4Err.message);
-        merged.investment_thesis = { available: false, reason: `Phase 4 エラー: ${p4Err.message}` };
       }
-    } else {
+    } catch (p4Err) {
+      console.warn(`[Phase4] Failed for ${code}:`, p4Err.message);
       merged.investment_thesis = {
-        available: false,
-        reason: edinetFinancials
-          ? "EDINET 財務 3 期未満で投資テーゼ作成不可"
-          : "EDINET 財務取得不可で投資テーゼ作成不可"
+        available: true,
+        _source: thesisSource,
+        _coverage_tier: "draft",
+        _generation_error: p4Err.message,
+        summary: { conviction: "low", thesis_one_liner: `Phase 4 エラー: ${p4Err.message}` },
+        scenarios: {
+          bull: { probability: 25, summary: "上昇シナリオ", drivers: ["業界成長"], implied_return: "—" },
+          base: { probability: 50, summary: "中立シナリオ", drivers: ["業界平均"], implied_return: "—" },
+          bear: { probability: 25, summary: "下落シナリオ", drivers: ["景気低迷"], implied_return: "—" },
+        },
       };
     }
 
