@@ -1,5 +1,5 @@
 {
-  "version": "2.5.1",
+  "version": "2.7.0",
   "build_date": "2026-05-03",
   "features": {
     "ir_news_section": false,
@@ -8,14 +8,17 @@
     "thesis_always_on": true,
     "thesis_coverage_tiers": true,
     "shikiho_tokushoku_blurb": true,
+    "edinet_business_full_expandable": true,
+    "company_name_search": true,
     "history_sidebar": true,
     "karte_system": true,
     "memo_system": false
   },
-  "fixes": [
-    "Financial table: unit is now consistent within each row (e.g., all years in 億円)",
-    "Financial table: correct conversion from 百万円 (EDINET native) to 億円 when values exceed 100億",
-    "Financial table: precision varies by magnitude (大: integer, 小: 1 decimal)"
+  "additions": [
+    "Search bar accepts company name in addition to stock code",
+    "Haiku-based code resolver (lib/code-resolver.js) handles 略称/カナ/英語名/サービス名",
+    "Confirmation panel shows resolved code + alternatives before starting analysis",
+    "Defensive try-catch wrapping on all SSE handlers and renders"
   ],
-  "build_signature": "argos-2.5.1-financial-units-fix"
+  "build_signature": "argos-2.7.0-name-search"
 }

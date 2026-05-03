@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="theme-color" content="#02060F"/>
 <title>ARGOS — Institutional Equity Intelligence</title>
-<meta name="argos-build-version" content="2.5.1-financial-units-fix"/>
+<meta name="argos-build-version" content="2.7.0-name-search"/>
 <meta name="argos-build-date" content="2026-05-03"/>
 <meta name="description" content="ARGOS · 機関投資家向け日本株インテリジェンス。EDINET 連携の財務分析、競争環境、投資テーゼを 2 分で生成。"/>
 <meta property="og:title" content="ARGOS — Institutional Equity Intelligence"/>
@@ -1770,8 +1770,8 @@
 
     <div class="search-row">
       <form class="search" id="searchForm">
-        <span class="search-label">CODE</span>
-        <input type="text" id="codeInput" value="2492" placeholder="例: 2492 / 7203 / 4751" inputmode="numeric" maxlength="5" autocomplete="off"/>
+        <span class="search-label">SEARCH</span>
+        <input type="text" id="codeInput" value="2492" placeholder="例: 2492 / 7203 / トヨタ / メンタルヘルステクノロジーズ" maxlength="80" autocomplete="off"/>
         <button class="search-go" type="submit" id="goBtn">
           <span class="label">分析 →</span>
           <span class="spinner"></span>
@@ -1779,7 +1779,7 @@
       </form>
       <div class="search-hint">
         <kbd>Enter</kbd> で分析実行<br/>
-        TSE / 名証 / 福証 / 札証 対応
+        証券コード or 会社名で検索可
       </div>
     </div>
 
@@ -1815,6 +1815,17 @@
       <div class="company-name-en" id="companyNameEn">—</div>
       <p class="company-blurb" id="companyBlurb">—</p>
       <div id="blurbSourceBadge" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);margin-top:-8px;margin-bottom:14px;padding-left:14px;"></div>
+      <!-- EDINET 事業の内容 全文 (折りたたみ) -->
+      <div id="edinetBusinessFullWrap" style="display:none;margin-top:-6px;margin-bottom:14px;padding-left:14px;">
+        <button id="edinetBusinessToggle" type="button" style="background:transparent;border:none;color:var(--cyan);font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.05em;cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;">
+          <span id="edinetBusinessToggleIcon">▾</span>
+          <span id="edinetBusinessToggleLabel">EDINET 事業の内容 全文を表示</span>
+        </button>
+        <div id="edinetBusinessFull" style="display:none;margin-top:10px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--cyan);border-radius:4px;font-family:'IBM Plex Sans JP',sans-serif;font-size:13px;line-height:1.85;font-weight:300;color:var(--text-2);white-space:pre-wrap;max-height:400px;overflow-y:auto;"></div>
+        <div id="edinetBusinessFullMeta" style="display:none;margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-4);letter-spacing:.05em;">
+          ◆ 出典: EDINET 有価証券報告書「事業の内容」
+        </div>
+      </div>
       <div class="company-tags" id="companyTags"></div>
       <div class="source-chips" id="heroSources"></div>
     </div>
@@ -2432,6 +2443,32 @@ function renderHero(d){
       blurbSourceEl.style.display = "block";
     } else {
       blurbSourceEl.style.display = "none";
+    }
+  }
+
+  // EDINET 事業の内容 full text — show ONLY when:
+  //   1. We have the full text from EDINET
+  //   2. The current displayed blurb is shorter (i.e., we're showing Shikiho 特色
+  //      or AI generated, so the EDINET full text is genuinely additional info)
+  //      — OR it's longer than ~250 chars (so showing more value adds info)
+  const edinetFullWrap = $("edinetBusinessFullWrap");
+  const edinetFullEl = $("edinetBusinessFull");
+  const edinetFullText = d.company?._edinet_business_full;
+  if (edinetFullWrap && edinetFullEl) {
+    const currentBlurb = String(d.company?.blurb || "");
+    const fullText = String(edinetFullText || "").trim();
+    // Only show the toggle if the full text exists AND is substantially longer than
+    // the currently-displayed blurb (else it's redundant)
+    if (fullText && fullText.length > 80 && fullText.length > currentBlurb.length + 50) {
+      edinetFullEl.textContent = fullText;
+      edinetFullWrap.style.display = "block";
+      // Reset to collapsed state on each render
+      edinetFullEl.style.display = "none";
+      $("edinetBusinessFullMeta").style.display = "none";
+      $("edinetBusinessToggleIcon").textContent = "▾";
+      $("edinetBusinessToggleLabel").textContent = `EDINET 事業の内容 全文を表示 (${fullText.length.toLocaleString("ja-JP")} 字)`;
+    } else {
+      edinetFullWrap.style.display = "none";
     }
   }
 
@@ -3228,12 +3265,20 @@ function renderAll(d){
     if (wrap) wrap.style.display = "none";
   }
 
-  renderHero(d);
-  renderListing(d);
-  renderFinancials(d);
-  renderCompetitive(d);
-  renderRisks(d);
-  renderThesis(d);
+  // Render each section in isolation — failure in one shouldn't kill the others
+  const safeRender = (name, fn) => {
+    try {
+      fn(d);
+    } catch (err) {
+      console.error(`[ARGOS render] ${name} failed:`, err, "data:", d);
+    }
+  };
+  safeRender("Hero",        renderHero);
+  safeRender("Listing",     renderListing);
+  safeRender("Financials",  renderFinancials);
+  safeRender("Competitive", renderCompetitive);
+  safeRender("Risks",       renderRisks);
+  safeRender("Thesis",      renderThesis);
 
   // Render source link chips for each section
   const s = d.sources || {};
@@ -3328,86 +3373,109 @@ async function fetchCompanyData(code, onProgress, onPartial){
     }, API_TIMEOUT_MS);
 
     eventSource.addEventListener("start", e => {
-      const data = JSON.parse(e.data);
-      console.log(`[ARGOS] Stream started for ${data.code}`);
-      onProgress?.({ stage: "started", message: `🚀 ${data.code} の分析を開始` });
+      try {
+        const data = JSON.parse(e.data);
+        console.log(`[ARGOS] Stream started for ${data.code}`);
+        onProgress?.({ stage: "started", message: `🚀 ${data.code} の分析を開始` });
+      } catch (err) { console.warn("[SSE start]", err); }
     });
 
     eventSource.addEventListener("phase", e => {
-      const data = JSON.parse(e.data);
-      console.log(`[ARGOS] Phase ${data.num}/${data.total}: ${data.label}`);
-      onProgress?.({
-        stage: "phase",
-        message: `<b>[${data.num}/${data.total}]</b> ${escapeHtml(data.label)}<br/><span style="font-size:10.5px;opacity:.7;">参照: ${escapeHtml(data.sources)}</span>`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        console.log(`[ARGOS] Phase ${data.num}/${data.total}: ${data.label}`);
+        onProgress?.({
+          stage: "phase",
+          message: `<b>[${data.num}/${data.total}]</b> ${escapeHtml(data.label)}<br/><span style="font-size:10.5px;opacity:.7;">参照: ${escapeHtml(data.sources)}</span>`
+        });
+      } catch (err) { console.warn("[SSE phase]", err); }
     });
 
     eventSource.addEventListener("search", e => {
-      const data = JSON.parse(e.data);
-      console.log(`[ARGOS] [${data.phase}] Search ${data.stage}: ${data.query}`);
-      onProgress?.({
-        stage: "searching",
-        message: `🔍 Web 検索 #${data.stage}: <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cyan-bright);">${escapeHtml(data.query)}</code>`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        console.log(`[ARGOS] [${data.phase}] Search ${data.stage}: ${data.query}`);
+        onProgress?.({
+          stage: "searching",
+          message: `🔍 Web 検索 #${data.stage}: <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cyan-bright);">${escapeHtml(data.query)}</code>`
+        });
+      } catch (err) { console.warn("[SSE search]", err); }
     });
 
     eventSource.addEventListener("search_result", e => {
-      const data = JSON.parse(e.data);
-      onProgress?.({
-        stage: "search_result",
-        message: `✓ 検索 #${data.stage} 完了`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        onProgress?.({
+          stage: "search_result",
+          message: `✓ 検索 #${data.stage} 完了`
+        });
+      } catch (err) { console.warn("[SSE search_result]", err); }
     });
 
     eventSource.addEventListener("text_start", e => {
-      const data = JSON.parse(e.data);
-      console.log(`[ARGOS] Text generation started (${data.phase})`);
-      onProgress?.({ stage: "generating", message: `📝 検索完了。AI が JSON を構造化中...` });
+      try {
+        const data = JSON.parse(e.data);
+        console.log(`[ARGOS] Text generation started (${data.phase})`);
+        onProgress?.({ stage: "generating", message: `📝 検索完了。AI が JSON を構造化中...` });
+      } catch (err) { console.warn("[SSE text_start]", err); }
     });
 
     eventSource.addEventListener("text_progress", e => {
-      const data = JSON.parse(e.data);
-      onProgress?.({
-        stage: "generating",
-        message: `📝 JSON 生成中... (${data.length.toLocaleString()} 文字)`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        const lenStr = (typeof data?.length === "number")
+          ? data.length.toLocaleString()
+          : "—";
+        onProgress?.({
+          stage: "generating",
+          message: `📝 JSON 生成中... (${lenStr} 文字)`
+        });
+      } catch (err) { console.warn("[SSE text_progress]", err); }
     });
 
     // EDINET-specific events
     eventSource.addEventListener("edinet_start", e => {
-      const data = JSON.parse(e.data);
-      console.log(`[ARGOS] EDINET fetch started: ${data.code}`);
-      onProgress?.({
-        stage: "edinet",
-        message: `🏛️ EDINET から有価証券報告書を取得中... (${escapeHtml(data.code)})`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        console.log(`[ARGOS] EDINET fetch started: ${data.code}`);
+        onProgress?.({
+          stage: "edinet",
+          message: `🏛️ EDINET から有価証券報告書を取得中... (${escapeHtml(data.code)})`
+        });
+      } catch (err) { console.warn("[SSE edinet_start]", err); }
     });
 
     eventSource.addEventListener("edinet_success", e => {
-      const data = JSON.parse(e.data);
-      console.log(`[ARGOS] EDINET success:`, data);
-      onProgress?.({
-        stage: "edinet",
-        message: `✓ EDINET 取得完了: <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cyan);">${escapeHtml(data.docDescription || data.docID)}</code> (${data.dataBasis} / ${data.yearsCount} 期分)`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        console.log(`[ARGOS] EDINET success:`, data);
+        onProgress?.({
+          stage: "edinet",
+          message: `✓ EDINET 取得完了: <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cyan);">${escapeHtml(data.docDescription || data.docID)}</code> (${data.dataBasis} / ${data.yearsCount} 期分)`
+        });
+      } catch (err) { console.warn("[SSE edinet_success]", err); }
     });
 
     eventSource.addEventListener("edinet_failed", e => {
-      const data = JSON.parse(e.data);
-      console.warn(`[ARGOS] EDINET failed:`, data.message);
-      onProgress?.({
-        stage: "edinet",
-        message: `⚠ EDINET 取得失敗: ${escapeHtml(data.message)} — Web 検索にフォールバック`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        console.warn(`[ARGOS] EDINET failed:`, data.message);
+        onProgress?.({
+          stage: "edinet",
+          message: `⚠ EDINET 取得失敗: ${escapeHtml(data.message)} — Web 検索にフォールバック`
+        });
+      } catch (err) { console.warn("[SSE edinet_failed]", err); }
     });
 
     eventSource.addEventListener("edinet_skipped", e => {
-      const data = JSON.parse(e.data);
-      console.warn(`[ARGOS] EDINET skipped:`, data.message);
-      onProgress?.({
-        stage: "edinet",
-        message: `⚠ ${escapeHtml(data.message)}`
-      });
+      try {
+        const data = JSON.parse(e.data);
+        console.warn(`[ARGOS] EDINET skipped:`, data.message);
+        onProgress?.({
+          stage: "edinet",
+          message: `⚠ ${escapeHtml(data.message)}`
+        });
+      } catch (err) { console.warn("[SSE edinet_skipped]", err); }
     });
 
     // Phase 1 complete — render partial data immediately
@@ -3540,7 +3608,154 @@ function loadDefault(){
   setInterval(updateClock, 30000);
 }
 
-async function handleSubmit(code){
+// Top-level entry from search form. Accepts either:
+//   - 4-5 digit stock code → run analysis directly
+//   - Free-text company name → resolve via /api/resolve-code → show confirmation → run analysis
+async function handleSubmit(input) {
+  const trimmed = String(input || "").trim();
+  if (!trimmed) {
+    showAlert("検索ワードを入力してください", "error");
+    return;
+  }
+  hideAlert();
+
+  // Fast path: numeric code
+  if (/^\d{4,5}$/.test(trimmed)) {
+    return runAnalysis(trimmed);
+  }
+
+  // Name search → resolve to code first
+  if (trimmed.length < 2 || trimmed.length > 80) {
+    showAlert("会社名は 2-80 文字で入力してください", "error");
+    return;
+  }
+
+  setLoading(true);
+  showAlert(`🔍 「${esc(trimmed)}」から証券コードを特定中...`, "info");
+
+  try {
+    const res = await fetch(`/api/resolve-code?q=${encodeURIComponent(trimmed)}`);
+    const data = await res.json();
+    setLoading(false);
+
+    if (!res.ok || !data.code) {
+      showAlert(
+        `✕ 「${esc(trimmed)}」に該当する上場企業が見つかりませんでした<br/>` +
+        `<span style="font-size:11px;opacity:.85;">証券コード (4-5 桁) または正確な会社名で再試行してください</span>`,
+        "error"
+      );
+      return;
+    }
+
+    // Show confirmation prompt
+    return showResolveConfirmation(data, trimmed);
+  } catch (err) {
+    setLoading(false);
+    console.error("[ARGOS] resolve-code failed:", err);
+    showAlert(`✕ 検索中にエラー: ${esc(err.message)}`, "error");
+  }
+}
+
+// Show "Did you mean ...?" confirmation panel
+function showResolveConfirmation(resolved, originalInput) {
+  const code = resolved.code;
+  const nameJp = resolved.name_jp || "—";
+  const nameEn = resolved.name_en || "";
+  const market = resolved.market || "";
+  const candidates = Array.isArray(resolved.candidates) ? resolved.candidates : [];
+
+  // Confidence badge
+  const confColor = resolved.confidence === "high" ? "var(--gain)"
+                  : resolved.confidence === "mid"  ? "var(--cyan)"
+                  : "var(--warn)";
+  const confLabel = resolved.confidence === "high" ? "確度: 高"
+                  : resolved.confidence === "mid"  ? "確度: 中"
+                  : "確度: 低";
+
+  // Candidate list (other possible matches)
+  const otherCandidates = candidates.filter(c => c.code !== code).slice(0, 4);
+  const candidatesHtml = otherCandidates.length > 0
+    ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+        <div style="font-size:10px;color:var(--text-3);font-family:'IBM Plex Mono',monospace;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;">他の候補</div>
+        ${otherCandidates.map(c => `
+          <div class="resolve-alt" data-code="${esc(c.code)}" style="cursor:pointer;padding:8px 10px;margin:4px 0;background:var(--surface-2);border:1px solid var(--border);border-radius:3px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;transition:all .15s ease;">
+            <span style="color:var(--text-2);"><b style="color:var(--gold);font-family:'IBM Plex Mono',monospace;">${esc(c.code)}</b> ${esc(c.name)}</span>
+            ${c.note ? `<span style="font-size:10px;color:var(--text-4);">${esc(c.note)}</span>` : ""}
+          </div>
+        `).join("")}
+      </div>`
+    : "";
+
+  const html = `
+    <div style="text-align:left;">
+      <div style="font-size:10.5px;color:var(--gold);font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">
+        ◆ 「${esc(originalInput)}」の検索結果
+      </div>
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:32px;font-weight:600;color:var(--gold);font-family:'IBM Plex Mono',monospace;line-height:1;">${esc(code)}</span>
+        <div style="flex:1;min-width:180px;">
+          <div style="font-size:15px;color:var(--text);font-weight:500;">${esc(nameJp)}</div>
+          ${nameEn ? `<div style="font-size:11px;color:var(--text-3);font-style:italic;margin-top:2px;">${esc(nameEn)}</div>` : ""}
+        </div>
+        <span style="font-size:9.5px;color:${confColor};border:1px solid ${confColor};padding:3px 7px;border-radius:3px;font-family:'IBM Plex Mono',monospace;letter-spacing:.05em;">${confLabel}</span>
+      </div>
+      ${market ? `<div style="font-size:11px;color:var(--text-3);margin-bottom:10px;">${esc(market)}</div>` : ""}
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button id="resolveConfirmYes" type="button" style="padding:8px 16px;background:var(--gold-dim);border:1px solid var(--gold-line);color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.05em;cursor:pointer;border-radius:3px;text-transform:uppercase;">
+          ✓ この会社で分析開始
+        </button>
+        <button id="resolveConfirmNo" type="button" style="padding:8px 16px;background:transparent;border:1px solid var(--border-strong);color:var(--text-3);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.05em;cursor:pointer;border-radius:3px;text-transform:uppercase;">
+          ✕ キャンセル
+        </button>
+      </div>
+      ${candidatesHtml}
+    </div>
+  `;
+
+  showAlert(html, "info");
+  // Disable auto-hide for confirmation (user must click)
+  if (window.__alertHideTimer) {
+    clearTimeout(window.__alertHideTimer);
+    window.__alertHideTimer = null;
+  }
+
+  // Wire up buttons (use querySelector since they're inside the alert HTML)
+  setTimeout(() => {
+    document.getElementById("resolveConfirmYes")?.addEventListener("click", () => {
+      hideAlert();
+      // Update input to show the resolved code
+      const inp = document.getElementById("codeInput");
+      if (inp) inp.value = code;
+      runAnalysis(code);
+    });
+    document.getElementById("resolveConfirmNo")?.addEventListener("click", () => {
+      hideAlert();
+    });
+    // Alternative candidates
+    document.querySelectorAll(".resolve-alt").forEach(el => {
+      el.addEventListener("click", () => {
+        const altCode = el.getAttribute("data-code");
+        if (altCode) {
+          hideAlert();
+          const inp = document.getElementById("codeInput");
+          if (inp) inp.value = altCode;
+          runAnalysis(altCode);
+        }
+      });
+      el.addEventListener("mouseenter", () => {
+        el.style.background = "var(--surface)";
+        el.style.borderColor = "var(--gold-line)";
+      });
+      el.addEventListener("mouseleave", () => {
+        el.style.background = "var(--surface-2)";
+        el.style.borderColor = "var(--border)";
+      });
+    });
+  }, 50);
+}
+
+// The actual analysis flow (formerly handleSubmit body)
+async function runAnalysis(code) {
   if(!/^\d{4,5}$/.test(code)){
     showAlert("証券コードは 4-5 桁の数字で入力してください", "error");
     return;
@@ -3564,14 +3779,16 @@ async function handleSubmit(code){
   const onPartial = (partialData) => {
     if (!partialData?.company) return;
     console.log("[ARGOS] Rendering Phase 1 partial data");
-    // Render only the sections we have
-    renderHero(partialData);
-    renderListing(partialData);
+    // Render only the sections we have — protect against partial-data null fields
+    try { renderHero(partialData); } catch (e) { console.error("[ARGOS partial] renderHero failed:", e); }
+    try { renderListing(partialData); } catch (e) { console.error("[ARGOS partial] renderListing failed:", e); }
     // Render sources we already have
     const s = partialData.sources || {};
-    renderSources("heroSources",    s.hero,    "Sources →");
-    renderSources("listingSources", s.listing, "JPX / EDINET →");
-    renderSources("newsSources",    s.news,    "Disclosure Sources →");
+    try {
+      renderSources("heroSources",    s.hero,    "Sources →");
+      renderSources("listingSources", s.listing, "JPX / EDINET →");
+      renderSources("newsSources",    s.news,    "Disclosure Sources →");
+    } catch (e) { console.error("[ARGOS partial] renderSources failed:", e); }
     phase1Rendered = true;
     // Scroll to hero on first partial render
     document.querySelector(".hero")?.scrollIntoView({behavior:"smooth", block:"start"});
@@ -3598,10 +3815,21 @@ async function handleSubmit(code){
     setTimeout(hideAlert, (truncMsg || warnMsg) ? 10000 : 5000);
   } catch(err){
     console.error("[ARGOS] handleSubmit error:", err);
-    showAlert(`✕ 取得エラー: ${esc(err.message)}<br/><span style="font-size:11px;opacity:.85;">DevTools のコンソールで詳細を確認できます</span>`, "error");
+    // Also expose for easy access via DevTools: window.__argos_last_error
+    window.__argos_last_error = err;
+    const stackHint = err?.stack
+      ? `<br/><span style="font-size:10px;opacity:.7;font-family:'IBM Plex Mono',monospace;">${esc(String(err.stack).split("\n").slice(0, 3).join(" → "))}</span>`
+      : "";
+    showAlert(`✕ 取得エラー: ${esc(err.message)}${stackHint}<br/><span style="font-size:11px;opacity:.85;">DevTools のコンソールで詳細を確認できます (window.__argos_last_error)</span>`, "error");
   } finally {
     setLoading(false);
   }
+}
+
+// Expose for cross-module callers (e.g. KarteSystem regenThesis)
+if (typeof window !== "undefined") {
+  window.runAnalysis = runAnalysis;
+  window.handleSubmit = handleSubmit;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -3764,7 +3992,7 @@ const HistorySystem = (function(){
         const inputEl = $("codeInput");
         if (inputEl) {
           inputEl.value = code;
-          handleSubmit();
+          runAnalysis(code);
         }
         return;
       }
@@ -4460,6 +4688,36 @@ document.addEventListener("DOMContentLoaded", () => {
       handleSubmit(code);
     });
   });
+
+  // EDINET 事業の内容 full-text toggle
+  const edinetBusinessToggle = $("edinetBusinessToggle");
+  if (edinetBusinessToggle) {
+    edinetBusinessToggle.addEventListener("click", () => {
+      const fullEl = $("edinetBusinessFull");
+      const metaEl = $("edinetBusinessFullMeta");
+      const iconEl = $("edinetBusinessToggleIcon");
+      const labelEl = $("edinetBusinessToggleLabel");
+      if (!fullEl) return;
+      const isHidden = fullEl.style.display === "none" || !fullEl.style.display;
+      if (isHidden) {
+        fullEl.style.display = "block";
+        if (metaEl) metaEl.style.display = "block";
+        if (iconEl) iconEl.textContent = "▴";
+        if (labelEl) {
+          const len = fullEl.textContent?.length || 0;
+          labelEl.textContent = `EDINET 事業の内容 全文を閉じる (${len.toLocaleString("ja-JP")} 字)`;
+        }
+      } else {
+        fullEl.style.display = "none";
+        if (metaEl) metaEl.style.display = "none";
+        if (iconEl) iconEl.textContent = "▾";
+        if (labelEl) {
+          const len = fullEl.textContent?.length || 0;
+          labelEl.textContent = `EDINET 事業の内容 全文を表示 (${len.toLocaleString("ja-JP")} 字)`;
+        }
+      }
+    });
+  }
 
   // PDF download — server-side generated institutional research PDF
   const pdfBtn = $("pdfBtn");

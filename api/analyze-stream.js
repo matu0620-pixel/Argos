@@ -304,6 +304,11 @@ export default async function handler(req, res) {
       merged.company.blurb = edinetCompanyInfo.business_summary;
       merged._blurb_source = "EDINET";
     }
+    // Save the FULL EDINET 事業の内容 text (untruncated) for the UI expandable section
+    if (edinetCompanyInfo?.business_description) {
+      merged.company = merged.company || {};
+      merged.company._edinet_business_full = edinetCompanyInfo.business_description;
+    }
     // EDINET facts hint for tags
     if (edinetCompanyInfo) {
       merged.company = merged.company || {};
