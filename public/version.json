@@ -1,5 +1,5 @@
 {
-  "version": "2.5.0",
+  "version": "2.5.1",
   "build_date": "2026-05-03",
   "features": {
     "ir_news_section": false,
@@ -12,10 +12,10 @@
     "karte_system": true,
     "memo_system": false
   },
-  "blurb_priority": [
-    "1. Shikiho 特色 (会社四季報の特色欄, ~80-150字, factual)",
-    "2. EDINET 有報「事業の内容」 (~冗長だが正確)",
-    "3. AI 生成 (Phase 1, fallback)"
+  "fixes": [
+    "Financial table: unit is now consistent within each row (e.g., all years in 億円)",
+    "Financial table: correct conversion from 百万円 (EDINET native) to 億円 when values exceed 100億",
+    "Financial table: precision varies by magnitude (大: integer, 小: 1 decimal)"
   ],
-  "build_signature": "argos-2.5.0-shikiho-tokushoku"
+  "build_signature": "argos-2.5.1-financial-units-fix"
 }
