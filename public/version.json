@@ -1,0 +1,17 @@
+{
+  "version": "2.1.0",
+  "build_date": "2026-05-03",
+  "features": {
+    "ir_news_section": false,
+    "phase5_report_authoring": true,
+    "institutional_pdf_export": true,
+    "history_sidebar": true,
+    "karte_system": true,
+    "memo_system": false
+  },
+  "removed_files": [
+    "api/memos.js",
+    "lib/ir-news-finder.js"
+  ],
+  "build_signature": "argos-2.1.0-institutional-pdf-no-ir-news"
+}
