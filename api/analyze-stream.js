@@ -22,6 +22,7 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
+import { findIrNews, toMergedIrNewsShape } from "../lib/ir-news-finder.js";
 import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
@@ -364,6 +365,34 @@ export default async function handler(req, res) {
             }
           }
         }
+      }
+
+      // ─── IR News dedicated search (8 categories from company IR site) ───
+      // This replaces / supplements the AI-generated ir_news from Phase 1.
+      // We search the verified company IR URL for specific high-value disclosures.
+      send("ir_news_searching", {
+        ir_url: merged.company_ir_url || null,
+        categories: ["業務提携", "資本業務提携", "株式取得", "子会社化", "業績予想", "成長可能性資料", "事業計画", "中期経営計画"],
+      });
+      try {
+        const irNewsItems = await findIrNews(client, {
+          code,
+          name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
+          name_en: edinetCompanyInfo?.name_en || merged.company?.name_en,
+          company_ir_url: merged.company_ir_url,
+        });
+        if (irNewsItems.length > 0) {
+          merged.ir_news = toMergedIrNewsShape(irNewsItems);
+          merged._ir_news_source = "ir-site-verified-search";
+          send("ir_news_found", { count: irNewsItems.length, source: "ir-site-search" });
+        } else {
+          // Keep Phase 1 AI-generated ir_news as fallback
+          merged._ir_news_source = "phase1-ai-fallback";
+          send("ir_news_fallback", { reason: "no-results-from-ir-search" });
+        }
+      } catch (irErr) {
+        console.warn(`[IR news] search failed for ${code}: ${irErr.message}`);
+        merged._ir_news_source = "phase1-ai-fallback";
       }
     }
 

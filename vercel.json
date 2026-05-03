@@ -6,12 +6,22 @@
     },
     "api/analyze-stream.js": {
       "maxDuration": 300
+    },
+    "api/export-pdf.js": {
+      "maxDuration": 60,
+      "includeFiles": "lib/fonts/**"
     }
   },
   "rewrites": [
     { "source": "/", "destination": "/index.html" }
   ],
   "headers": [
+    {
+      "source": "/api/export-pdf",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    },
     {
       "source": "/api/(.*)",
       "headers": [

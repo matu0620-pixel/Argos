@@ -3215,6 +3215,9 @@ function buildValRow(m){
 }
 
 function renderAll(d){
+  // Cache merged data for PDF export and other client-side features
+  window.__lastMerged = d;
+
   renderHero(d);
   renderListing(d);
   renderFinancials(d);
@@ -4331,28 +4334,57 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // PDF download — triggers browser print dialog with optimized print stylesheet
+  // PDF download — server-side generated institutional research PDF
+  // (replaces window.print which produced a low-quality vertical layout)
   const pdfBtn = $("pdfBtn");
   if (pdfBtn) {
-    pdfBtn.addEventListener("click", () => {
-      // Hide any open chart tooltip before printing
-      const tt = document.querySelector("#chartTooltip");
-      if (tt) tt.style.display = "none";
-      // Set a temporary document title for the print dialog (becomes the default PDF filename)
-      const origTitle = document.title;
-      const heroEyebrow = document.querySelector(".hero-eyebrow")?.textContent?.trim() || "";
-      const companyName = document.querySelector(".hero-company")?.textContent?.trim() || "";
-      const codeMatch = (heroEyebrow + " " + companyName).match(/\d{4}/);
-      const code = codeMatch ? codeMatch[0] : "";
-      const today = new Date().toISOString().slice(0, 10);
-      document.title = `ARGOS_${code || "report"}_${today}`;
-      // Set print header date attribute (rendered via body::before in print CSS)
-      const dateLabel = new Date().toLocaleDateString("ja-JP", { year:"numeric", month:"2-digit", day:"2-digit" });
-      document.body.setAttribute("data-print-date", `Generated ${dateLabel}`);
-      // Trigger print
-      window.print();
-      // Restore title after print dialog closes
-      setTimeout(() => { document.title = origTitle; }, 1000);
+    pdfBtn.addEventListener("click", async () => {
+      if (!window.__lastMerged || !window.__lastMerged.code) {
+        showAlert("分析データがありません。先に銘柄を分析してください。", "warn");
+        return;
+      }
+      const merged = window.__lastMerged;
+      const origLabel = pdfBtn.textContent;
+      pdfBtn.disabled = true;
+      pdfBtn.textContent = "生成中...";
+
+      try {
+        const res = await fetch("/api/export-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ merged }),
+        });
+        if (!res.ok) {
+          let errMsg = `HTTP ${res.status}`;
+          try {
+            const data = await res.json();
+            errMsg = data.error || errMsg;
+            if (data.hint) errMsg += ` (${data.hint})`;
+          } catch {}
+          throw new Error(errMsg);
+        }
+        const blob = await res.blob();
+        const today = new Date().toISOString().slice(0, 10);
+        const filename = `ARGOS_${merged.code}_${today}.pdf`;
+
+        // Trigger download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        showAlert(`✓ PDF を保存しました: ${filename}`, "info");
+      } catch (err) {
+        console.error("[PDF export]", err);
+        showAlert(`✕ PDF 生成に失敗しました: ${err.message}`, "error");
+      } finally {
+        pdfBtn.disabled = false;
+        pdfBtn.textContent = origLabel;
+      }
     });
   }
 });

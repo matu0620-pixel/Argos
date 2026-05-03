@@ -20,6 +20,7 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
+import { findIrNews, toMergedIrNewsShape } from "../lib/ir-news-finder.js";
 import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
@@ -252,6 +253,25 @@ export default async function handler(req, res) {
             }
           }
         }
+      }
+
+      // ─── IR News dedicated search (8 categories) ───
+      try {
+        const irNewsItems = await findIrNews(client, {
+          code,
+          name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
+          name_en: edinetCompanyInfo?.name_en || merged.company?.name_en,
+          company_ir_url: merged.company_ir_url,
+        });
+        if (irNewsItems.length > 0) {
+          merged.ir_news = toMergedIrNewsShape(irNewsItems);
+          merged._ir_news_source = "ir-site-verified-search";
+        } else {
+          merged._ir_news_source = "phase1-ai-fallback";
+        }
+      } catch (irErr) {
+        console.warn(`[IR news] search failed for ${code}: ${irErr.message}`);
+        merged._ir_news_source = "phase1-ai-fallback";
       }
     }
 
