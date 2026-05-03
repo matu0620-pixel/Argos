@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="theme-color" content="#02060F"/>
 <title>ARGOS — Institutional Equity Intelligence</title>
-<meta name="argos-build-version" content="2.7.0-name-search"/>
+<meta name="argos-build-version" content="2.7.1-new-format-codes"/>
 <meta name="argos-build-date" content="2026-05-03"/>
 <meta name="description" content="ARGOS · 機関投資家向け日本株インテリジェンス。EDINET 連携の財務分析、競争環境、投資テーゼを 2 分で生成。"/>
 <meta property="og:title" content="ARGOS — Institutional Equity Intelligence"/>
@@ -1771,7 +1771,7 @@
     <div class="search-row">
       <form class="search" id="searchForm">
         <span class="search-label">SEARCH</span>
-        <input type="text" id="codeInput" value="2492" placeholder="例: 2492 / 7203 / トヨタ / メンタルヘルステクノロジーズ" maxlength="80" autocomplete="off"/>
+        <input type="text" id="codeInput" value="2492" placeholder="例: 2492 / 7203 / 173A / トヨタ" maxlength="80" autocomplete="off"/>
         <button class="search-go" type="submit" id="goBtn">
           <span class="label">分析 →</span>
           <span class="spinner"></span>
@@ -3619,9 +3619,10 @@ async function handleSubmit(input) {
   }
   hideAlert();
 
-  // Fast path: numeric code
-  if (/^\d{4,5}$/.test(trimmed)) {
-    return runAnalysis(trimmed);
+  // Fast path: legacy 4-5 digit code OR new format (3 digit + letter, e.g. 173A)
+  const upperTrimmed = trimmed.toUpperCase();
+  if (/^(\d{4,5}|\d{3}[A-Z])$/.test(upperTrimmed)) {
+    return runAnalysis(upperTrimmed);
   }
 
   // Name search → resolve to code first
@@ -3756,10 +3757,13 @@ function showResolveConfirmation(resolved, originalInput) {
 
 // The actual analysis flow (formerly handleSubmit body)
 async function runAnalysis(code) {
-  if(!/^\d{4,5}$/.test(code)){
-    showAlert("証券コードは 4-5 桁の数字で入力してください", "error");
+  // Normalize and validate — accept both legacy (4-5 digit) and new format (3 digit + letter)
+  const normCode = String(code || "").trim().toUpperCase();
+  if (!/^(\d{4,5}|\d{3}[A-Z])$/.test(normCode)) {
+    showAlert("証券コードは 4-5 桁の数字、または 3 桁数字 + 英字 1 文字 (例: 173A) で入力してください", "error");
     return;
   }
+  code = normCode;
   hideAlert();
   $("pressEnter").classList.remove("show");
   window.__equityLensTruncated = false;
@@ -4663,11 +4667,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const pressEnter = $("pressEnter");
   const pressEnterCode = $("pressEnterCode");
 
-  // Detect input changes — show "press Enter" hint when code differs
+  // Detect input changes — show "press Enter" hint when valid input
   input.addEventListener("input", () => {
     const v = input.value.trim();
-    if(v && v !== currentCode && /^\d{1,5}$/.test(v)){
-      pressEnterCode.textContent = v;
+    const upperV = v.toUpperCase();
+    const isCode = /^(\d{1,5}|\d{3}[A-Z])$/.test(upperV);
+    const isName = !isCode && v.length >= 2 && v.length <= 80;
+    if (v && v !== currentCode && (isCode || isName)) {
+      pressEnterCode.textContent = isCode ? upperV : `「${v.length > 12 ? v.slice(0,12)+"…" : v}」を解決`;
       pressEnter.classList.add("show");
     } else {
       pressEnter.classList.remove("show");

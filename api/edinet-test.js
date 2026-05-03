@@ -5,10 +5,10 @@
 import { findDocsForCode, getFinancialsByCode, downloadDocumentCSV, extractFinancials } from "../lib/edinet.js";
 
 export default async function handler(req, res) {
-  const code = String(req.query?.code || "2492").trim();
+  const code = String(req.query?.code || "2492").trim().toUpperCase();
 
-  if (!/^\d{4,5}$/.test(code)) {
-    return res.status(400).json({ error: "invalid_code", message: "code must be 4-5 digits" });
+  if (!/^(\d{4,5}|\d{3}[A-Z])$/.test(code)) {
+    return res.status(400).json({ error: "invalid_code", message: "code must be 4-5 digits or 3 digits + letter (e.g. 173A)" });
   }
 
   const apiKey = process.env.EDINET_API_KEY;

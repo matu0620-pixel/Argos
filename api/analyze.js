@@ -113,9 +113,9 @@ export default async function handler(req, res) {
 
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
-  const code = String(body?.code || "").trim();
+  const code = String(body?.code || "").trim().toUpperCase();
   const force = Boolean(body?.force);
-  if (!/^\d{4,5}$/.test(code)) return res.status(400).json({ error: "invalid_code" });
+  if (!/^(\d{4,5}|\d{3}[A-Z])$/.test(code)) return res.status(400).json({ error: "invalid_code" });
 
   // Karte version invalidates cache when karte changes
   let karteVersion = "0";

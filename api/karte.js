@@ -44,9 +44,9 @@ export default async function handler(req, res) {
     });
   }
 
-  const code = String(req.query.code || "").trim();
-  if (!/^\d{4,5}$/.test(code)) {
-    return res.status(400).json({ error: "Invalid code: must be 4-5 digit string" });
+  const code = String(req.query.code || "").trim().toUpperCase();
+  if (!/^(\d{4,5}|\d{3}[A-Z])$/.test(code)) {
+    return res.status(400).json({ error: "Invalid code: must be 4-5 digits or 3 digits + letter" });
   }
   const op = String(req.query.op || "").trim();
 

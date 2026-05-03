@@ -1,5 +1,5 @@
 {
-  "version": "2.7.0",
+  "version": "2.7.1",
   "build_date": "2026-05-03",
   "features": {
     "ir_news_section": false,
@@ -10,15 +10,17 @@
     "shikiho_tokushoku_blurb": true,
     "edinet_business_full_expandable": true,
     "company_name_search": true,
+    "new_format_codes": true,
     "history_sidebar": true,
     "karte_system": true,
     "memo_system": false
   },
   "additions": [
-    "Search bar accepts company name in addition to stock code",
-    "Haiku-based code resolver (lib/code-resolver.js) handles 略称/カナ/英語名/サービス名",
-    "Confirmation panel shows resolved code + alternatives before starting analysis",
-    "Defensive try-catch wrapping on all SSE handlers and renders"
+    "Support for new TSE alphanumeric stock codes (e.g., 173A ハンモック, 184A エコム)",
+    "Code regex updated everywhere: /^(\\d{4,5}|\\d{3}[A-Z])$/i",
+    "Codes are normalized to uppercase (173a → 173A)",
+    "Yahoo Finance URL builder handles new format (173A.T)",
+    "EDINET secCode prefix matching works with new format"
   ],
-  "build_signature": "argos-2.7.0-name-search"
+  "build_signature": "argos-2.7.1-new-format-codes"
 }
