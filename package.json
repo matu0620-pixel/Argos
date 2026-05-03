@@ -1,0 +1,18 @@
+{
+  "name": "argos",
+  "version": "1.0.0",
+  "description": "ARGOS — Institutional Equity Intelligence for Japanese listed markets. EDINET-backed financial analysis, competitive landscape, and institutional-grade investment thesis.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "adm-zip": "^0.5.17"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
