@@ -2025,28 +2025,6 @@
   </section>
 </div>
 
-<!-- §5 NEWS -->
-<div class="wrap">
-  <section>
-    <div class="section-head">
-      <div>
-        <span class="section-num">05 — IR Pulse</span>
-        <h3 class="section-title">重要 IR ニュース<span class="en">M&amp;A · Equity · Partnership</span><a id="newsIrLink" class="ir-hp-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">会社 IR HP →</a></h3>
-      </div>
-      <div class="section-aside">
-        過去 18 ヶ月 / 株価インパクト推定<br/>
-        ▣ M&amp;A ▣ 資本提携 ▣ 株式 ▣ 業績 ▣ 配当
-      </div>
-    </div>
-    <div class="news-list" id="newsList"></div>
-    <div class="news-foot">
-      ※ 推定インパクトは適時開示翌営業日終値 (TOPIX 調整後) ベース。<br/>
-      ※ 個別開示への直接リンクは提供せず、上部「会社 IR HP →」からアクセスしてください。
-    </div>
-    <div class="source-chips" id="newsSources" style="margin-top:14px;"></div>
-  </section>
-</div>
-
 <!-- §6 INVESTMENT THESIS (Institutional Research View) -->
 <div class="wrap" id="thesisSection" style="display:none;">
   <section>
@@ -2938,44 +2916,6 @@ function renderRisks(d){
   }).join("");
 }
 
-function renderNews(d){
-  // Set IR HP link in section header (prefer EDINET-verified company_ir_url, fall back to minkabu disclosure hub)
-  const irLink = $("newsIrLink");
-  if (irLink) {
-    let hpUrl = isHttpUrl(d.company_ir_url) ? d.company_ir_url : null;
-    if (!hpUrl) {
-      // Fallback: 会社 IR chip if it looks valid; otherwise minkabu's per-stock disclosure page
-      const irChip = (d.sources?.hero || []).find(s => /会社 ?IR/.test(s.label || "") && isHttpUrl(s.url));
-      hpUrl = irChip?.url
-        || (d.code ? `https://minkabu.jp/stock/${String(d.code).slice(0,4)}/disclosure` : null);
-    }
-    if (hpUrl) {
-      irLink.href = hpUrl;
-      irLink.style.display = "inline-block";
-      irLink.textContent = isHttpUrl(d.company_ir_url) ? "会社 IR HP →" : "開示資料一覧 →";
-    } else {
-      irLink.style.display = "none";
-    }
-  }
-
-  // Client-side sort defense: ensure newest first regardless of AI output order
-  const sorted = (d.ir_news||[]).slice().sort((a, b) => {
-    const da = String(a?.date||"").replace(/[^0-9]/g, "");
-    const db = String(b?.date||"").replace(/[^0-9]/g, "");
-    return db.localeCompare(da);
-  });
-  $("newsList").innerHTML = sorted.map(n => `
-    <div class="news-row">
-      <div class="news-date">${esc(n.date)}<span class="y">${esc(n.fy||"")}</span></div>
-      <div class="news-meta"><span class="news-cat ${esc(n.cat||"other")}">${esc(cleanText(n.label||n.cat||""))}</span></div>
-      <div class="news-title">
-        ${esc(cleanText(n.title))}
-        <span class="meta">${esc(cleanText(n.meta||""))}</span>
-      </div>
-      <div class="news-impact">推定インパクト<b class="${esc(n.impact_cls||"flat")}">${esc(n.impact||"—")}</b></div>
-    </div>
-  `).join("");
-}
 
 function renderThesis(d){
   const it = d.investment_thesis;
@@ -3223,7 +3163,6 @@ function renderAll(d){
   renderFinancials(d);
   renderCompetitive(d);
   renderRisks(d);
-  renderNews(d);
   renderThesis(d);
 
   // Render source link chips for each section
@@ -3535,7 +3474,6 @@ async function handleSubmit(code){
     // Render only the sections we have
     renderHero(partialData);
     renderListing(partialData);
-    renderNews(partialData);
     // Render sources we already have
     const s = partialData.sources || {};
     renderSources("heroSources",    s.hero,    "Sources →");

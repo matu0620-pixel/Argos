@@ -4,11 +4,13 @@ import {
   buildPromptPhase1,
   buildPromptPhase2,
   buildPromptPhase4,
+  buildPromptPhase5,
   parseResponseJson,
   mergeResults,
   postProcessPhase1,
   postProcessPhase2,
   postProcessPhase4,
+  postProcessPhase5,
   getJstNow
 } from "../lib/prompt.js";
 import { getFinancialsByCode, buildEdinetListingRows } from "../lib/edinet.js";
@@ -20,7 +22,6 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
-import { findIrNews, toMergedIrNewsShape } from "../lib/ir-news-finder.js";
 import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
@@ -255,24 +256,8 @@ export default async function handler(req, res) {
         }
       }
 
-      // ─── IR News dedicated search (8 categories) ───
-      try {
-        const irNewsItems = await findIrNews(client, {
-          code,
-          name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
-          name_en: edinetCompanyInfo?.name_en || merged.company?.name_en,
-          company_ir_url: merged.company_ir_url,
-        });
-        if (irNewsItems.length > 0) {
-          merged.ir_news = toMergedIrNewsShape(irNewsItems);
-          merged._ir_news_source = "ir-site-verified-search";
-        } else {
-          merged._ir_news_source = "phase1-ai-fallback";
-        }
-      } catch (irErr) {
-        console.warn(`[IR news] search failed for ${code}: ${irErr.message}`);
-        merged._ir_news_source = "phase1-ai-fallback";
-      }
+      // IR news section removed.
+      delete merged.ir_news;
     }
 
     /* OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria */
@@ -408,6 +393,27 @@ export default async function handler(req, res) {
           ? "EDINET 財務 3 期未満で投資テーゼ作成不可"
           : "EDINET 財務取得不可で投資テーゼ作成不可"
       };
+    }
+
+    // Phase 5: Report Authoring
+    try {
+      const ctxForP5 = buildPhase4Context(merged);
+      const p5Prompt = buildPromptPhase5(code, authoritativeName, ctxForP5, karteContextStr || null);
+      const p5Response = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
+        messages: [{ role: "user", content: p5Prompt }],
+      });
+      const p5Text = (p5Response.content || []).filter(c => c.type === "text").map(c => c.text).join("");
+      const jsonMatch = p5Text.match(/\{[\s\S]*\}/);
+      let p5Data = null;
+      if (jsonMatch) {
+        try { p5Data = JSON.parse(jsonMatch[0]); } catch {}
+      }
+      merged.report_authoring = postProcessPhase5(p5Data || {});
+    } catch (p5Err) {
+      console.warn(`[Phase5] failed for ${code}:`, p5Err.message);
+      merged.report_authoring = postProcessPhase5({});
     }
 
     merged._elapsed_ms = Date.now() - t0;

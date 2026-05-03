@@ -4,11 +4,13 @@ import {
   buildPromptPhase1,
   buildPromptPhase2,
   buildPromptPhase4,
+  buildPromptPhase5,
   parseResponseJson,
   mergeResults,
   postProcessPhase1,
   postProcessPhase2,
   postProcessPhase4,
+  postProcessPhase5,
   getJstNow
 } from "../lib/prompt.js";
 import { getFinancialsByCode, buildEdinetListingRows } from "../lib/edinet.js";
@@ -22,7 +24,6 @@ import {
 } from "../lib/yahoo-finance.js";
 import { getMarketCard, getMarketAside, detectMarketSegment } from "../lib/jpx-listing-criteria.js";
 import { findCompanyIrUrl, urlMatchesCompany } from "../lib/ir-url-finder.js";
-import { findIrNews, toMergedIrNewsShape } from "../lib/ir-news-finder.js";
 import { findMarketSegment, applyMarketSegmentToMerged } from "../lib/market-segment.js";
 import {
   getIndustryProfile,
@@ -367,33 +368,8 @@ export default async function handler(req, res) {
         }
       }
 
-      // ─── IR News dedicated search (8 categories from company IR site) ───
-      // This replaces / supplements the AI-generated ir_news from Phase 1.
-      // We search the verified company IR URL for specific high-value disclosures.
-      send("ir_news_searching", {
-        ir_url: merged.company_ir_url || null,
-        categories: ["業務提携", "資本業務提携", "株式取得", "子会社化", "業績予想", "成長可能性資料", "事業計画", "中期経営計画"],
-      });
-      try {
-        const irNewsItems = await findIrNews(client, {
-          code,
-          name_jp: edinetCompanyInfo?.name_jp || merged.company?.name_jp,
-          name_en: edinetCompanyInfo?.name_en || merged.company?.name_en,
-          company_ir_url: merged.company_ir_url,
-        });
-        if (irNewsItems.length > 0) {
-          merged.ir_news = toMergedIrNewsShape(irNewsItems);
-          merged._ir_news_source = "ir-site-verified-search";
-          send("ir_news_found", { count: irNewsItems.length, source: "ir-site-search" });
-        } else {
-          // Keep Phase 1 AI-generated ir_news as fallback
-          merged._ir_news_source = "phase1-ai-fallback";
-          send("ir_news_fallback", { reason: "no-results-from-ir-search" });
-        }
-      } catch (irErr) {
-        console.warn(`[IR news] search failed for ${code}: ${irErr.message}`);
-        merged._ir_news_source = "phase1-ai-fallback";
-      }
+      // IR news section removed — was unreliable. Replaced by richer Phase 5 report content.
+      delete merged.ir_news;
     }
 
     /* ─── OVERRIDE 1.5: §01 Listing Profile — EDINET 6 fields ONLY + JPX criteria ─── */
@@ -581,6 +557,51 @@ export default async function handler(req, res) {
       });
     }
 
+    // ─── Phase 5: Report Authoring (PDF レポート用追加コメント生成) ───
+    // 機関投資家レポート PDF に掲載する Executive Summary / Recommendation /
+    // Key Drivers / Valuation Take / Analyst Take を生成する。Web 検索なし、
+    // Phase 1-4 の結果を踏まえた純粋なアナリスト所感。
+    send("phase", {
+      num: 5, total: 5, label: "Phase 5: Report Authoring (機関投資家レポート用追加コメント生成)",
+      sources: "Phase 1-4 の結果 + カルテ"
+    });
+    try {
+      const ctxForP5 = buildPhase4Context(merged);
+      const p5Prompt = buildPromptPhase5(
+        code,
+        authoritativeName,
+        ctxForP5,
+        karteContextStr || null
+      );
+      const p5Response = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
+        messages: [{ role: "user", content: p5Prompt }],
+      });
+      const p5Text = (p5Response.content || [])
+        .filter(c => c.type === "text")
+        .map(c => c.text).join("");
+      // Extract JSON
+      let p5Data = null;
+      const jsonMatch = p5Text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try { p5Data = JSON.parse(jsonMatch[0]); } catch {}
+      }
+      if (p5Data) {
+        merged.report_authoring = postProcessPhase5(p5Data);
+        send("phase5_complete", {
+          rating: merged.report_authoring.recommendation?.rating || null,
+          target: merged.report_authoring.recommendation?.target_price_jpy || null,
+        });
+      } else {
+        console.warn(`[Phase5] no parseable JSON for ${code}`);
+        merged.report_authoring = postProcessPhase5({});  // empty defaults
+      }
+    } catch (p5Err) {
+      console.warn(`[Phase5] failed for ${code}:`, p5Err.message);
+      merged.report_authoring = postProcessPhase5({});
+    }
+
     merged._elapsed_ms = Date.now() - startTime;
     merged._search_count = p1.searchCount + p2.searchCount + p4SearchCount;
     merged._edinet_used = !!edinetFinancials;
@@ -645,14 +666,6 @@ function buildPhase4Context(merged) {
     lines.push(`■ 重要リスク (上位):`);
     merged.risks.slice(0, 5).forEach(r => {
       lines.push(`  [${r.sev?.toUpperCase()}] ${r.title} — ${r.desc?.slice(0, 80)}`);
-    });
-  }
-
-  // Recent IR catalysts
-  if (Array.isArray(merged.ir_news) && merged.ir_news.length > 0) {
-    lines.push(`■ 直近 IR (時系列順):`);
-    merged.ir_news.slice(0, 5).forEach(n => {
-      lines.push(`  ${n.date}: [${n.label}] ${n.title} — ${n.meta?.slice(0, 60)}`);
     });
   }
 
