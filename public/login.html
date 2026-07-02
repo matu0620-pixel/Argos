@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>ARGOS Equity Intelligence — ログイン</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+ :root{--bg:#02060F;--surface:#0B1124;--bg-1:#060B1A;--border:#1A2447;--border-2:#243156;--text:#F0F4FA;--text-2:#B8C2DC;--text-3:#7B8AAD;--accent:#38BDF8;--gold:#D4A24E;--sans:"IBM Plex Sans JP",system-ui,sans-serif;--mono:"IBM Plex Mono",monospace}
+ *{box-sizing:border-box}html,body{height:100%}
+ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text);font-family:var(--sans);position:relative;overflow:hidden;
+   background:var(--bg);background-image:radial-gradient(circle at 50% -5%,rgba(212,162,78,.08),transparent 55%),radial-gradient(circle at 1px 1px,rgba(96,165,250,.05) 1px,transparent 0);background-size:auto,32px 32px}
+ #lc{position:fixed;inset:0;z-index:0;pointer-events:none}
+ .glow{position:fixed;z-index:0;pointer-events:none;border-radius:50%;filter:blur(72px);mix-blend-mode:screen}
+ .glow.g1{width:48vw;height:48vw;left:-10vw;top:-12vw;background:radial-gradient(circle,rgba(56,189,248,.5),transparent 66%);opacity:.36;animation:gd1 24s ease-in-out infinite}
+ .glow.g2{width:42vw;height:42vw;right:-12vw;bottom:-14vw;background:radial-gradient(circle,rgba(212,162,78,.5),transparent 66%);opacity:.3;animation:gd2 30s ease-in-out infinite}
+ .vig{position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,transparent 42%,rgba(2,6,15,.6) 100%)}
+ @keyframes gd1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(7vw,5vh) scale(1.12)}}
+ @keyframes gd2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-6vw,-5vh) scale(1.1)}}
+ @media(prefers-reduced-motion:reduce){.glow{animation:none}}
+ .box{position:relative;z-index:1;width:100%;max-width:392px;background:linear-gradient(180deg,rgba(11,17,36,.82),rgba(6,11,26,.86));backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:16px;padding:34px 30px;box-shadow:0 18px 50px rgba(0,0,0,.6);overflow:hidden}
+ .box::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+ .brand{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+ .brand svg{filter:drop-shadow(0 0 12px rgba(212,162,78,.3))}
+ .brand b{font-family:var(--mono);font-size:1.05em;letter-spacing:.2em;color:var(--text)}
+ .brand span{display:block;font-family:var(--mono);font-size:.56em;letter-spacing:.26em;color:var(--text-3);text-transform:uppercase;margin-top:2px}
+ h1{font-size:1.18em;margin:14px 0 4px;font-weight:600}
+ .sub{color:var(--text-3);font-size:.85em;margin:0 0 20px}
+ label{display:block;font-family:var(--mono);font-size:.72em;letter-spacing:.08em;color:var(--text-3);text-transform:uppercase;margin:14px 0 6px}
+ input{width:100%;background:#070D1E;border:1px solid var(--border-2);border-radius:9px;padding:11px 13px;color:var(--text);font-family:var(--sans);font-size:.98em;outline:none}
+ input:focus{border-color:var(--accent)}
+ button{width:100%;margin-top:22px;background:var(--accent);color:#06121F;border:0;border-radius:9px;padding:12px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;cursor:pointer;font-size:.92em;transition:filter .15s,transform .15s}
+ button:hover{filter:brightness(1.08);transform:translateY(-1px)}
+ .err{display:none;color:#FCA5A5;background:rgba(251,113,133,.08);border:1px solid rgba(251,113,133,.3);border-radius:8px;padding:9px 12px;font-size:.85em;margin:0 0 8px}
+ .note{color:#4A5878;font-size:.74em;margin-top:16px;text-align:center;font-family:var(--mono);letter-spacing:.06em}
+</style>
+</head>
+<body>
+ <canvas id="lc" aria-hidden="true"></canvas>
+ <span class="glow g1" aria-hidden="true"></span><span class="glow g2" aria-hidden="true"></span>
+ <span class="vig" aria-hidden="true"></span>
+ <form class="box" method="POST" action="/api/auth">
+   <div class="brand">
+     <svg width="36" height="36" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+       <g fill="#D4A24E" opacity="0.55"><circle cx="30" cy="3.5" r="1.1"/><circle cx="43.25" cy="6.95" r="0.9"/><circle cx="53.05" cy="16.75" r="1"/><circle cx="56.5" cy="30" r="1.1"/><circle cx="53.05" cy="43.25" r="0.9"/><circle cx="43.25" cy="53.05" r="1"/><circle cx="30" cy="56.5" r="1.1"/><circle cx="16.75" cy="53.05" r="0.9"/><circle cx="6.95" cy="43.25" r="1"/><circle cx="3.5" cy="30" r="1.1"/><circle cx="6.95" cy="16.75" r="0.9"/><circle cx="16.75" cy="6.95" r="1"/></g>
+       <circle cx="30" cy="30" r="20" stroke="#D4A24E" stroke-width="1.2" fill="none" opacity="0.85"/>
+       <circle cx="30" cy="30" r="14" stroke="#D4A24E" stroke-width="0.5" fill="none" opacity="0.45" stroke-dasharray="0.8 1.6"/>
+       <circle cx="30" cy="30" r="7" fill="url(#g)"/><circle cx="27.8" cy="27.8" r="1.6" fill="#FFE8B3" opacity="0.75"/>
+       <defs><radialGradient id="g" cx="0.4" cy="0.4"><stop offset="0%" stop-color="#F0CB72"/><stop offset="60%" stop-color="#D4A24E"/><stop offset="100%" stop-color="#9C7A2E"/></radialGradient></defs>
+     </svg>
+     <div><b>ARGOS</b><span>Equity Intelligence</span></div>
+   </div>
+   <h1>ログイン</h1>
+   <p class="sub">発行されたID・パスワードでログインしてください</p>
+   <div class="err" id="err">IDまたはパスワードが違います。</div>
+   <label for="u">ユーザーID</label>
+   <input id="u" name="user" autocomplete="username" autofocus required />
+   <label for="p">パスワード</label>
+   <input id="p" name="pass" type="password" autocomplete="current-password" required />
+   <button type="submit">ログイン →</button>
+   <p class="note">上場株リサーチ — Institutional Edition</p>
+ </form>
+ <script>
+ if (new URLSearchParams(location.search).get('err') === '1') {
+   var e = document.getElementById('err'); if (e) e.style.display = 'block';
+ }
+ (function(){
+   var c=document.getElementById('lc'); if(!c) return; var x=c.getContext('2d');
+   var W,H,dpr,ns=[]; var CY=[56,189,248], GO=[212,162,78];
+   function rgba(a,al){return 'rgba('+a[0]+','+a[1]+','+a[2]+','+al+')';}
+   function sz(){dpr=Math.min(window.devicePixelRatio||1,2);W=window.innerWidth;H=window.innerHeight;c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';x.setTransform(dpr,0,0,dpr,0,0);var n=Math.round(Math.min(72,Math.max(28,W*H/22000)));ns=[];for(var i=0;i<n;i++){ns.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-0.5)*0.25,vy:(Math.random()-0.5)*0.25,r:Math.random()*1.5+0.6,g:Math.random()<0.22});}}
+   function step(){x.clearRect(0,0,W,H);var i,j;for(i=0;i<ns.length;i++){var p=ns[i];p.x+=p.vx;p.y+=p.vy;if(p.x<-20)p.x=W+20;else if(p.x>W+20)p.x=-20;if(p.y<-20)p.y=H+20;else if(p.y>H+20)p.y=-20;}
+   for(i=0;i<ns.length;i++){for(j=i+1;j<ns.length;j++){var a=ns[i],b=ns[j],dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy;if(d2<19881){var t=1-Math.sqrt(d2)/141;x.strokeStyle=rgba((a.g||b.g)?GO:CY,0.15*t);x.lineWidth=1;x.beginPath();x.moveTo(a.x,a.y);x.lineTo(b.x,b.y);x.stroke();}}}
+   for(i=0;i<ns.length;i++){var q=ns[i],col=q.g?GO:CY;x.beginPath();x.arc(q.x,q.y,q.r,0,6.2832);x.fillStyle=rgba(col,0.85);x.shadowColor=rgba(col,0.7);x.shadowBlur=6;x.fill();x.shadowBlur=0;}
+   requestAnimationFrame(step);}
+   window.addEventListener('resize',sz); sz();
+   if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){step();}else{requestAnimationFrame(step);}
+ })();
+ </script>
+</body>
+</html>

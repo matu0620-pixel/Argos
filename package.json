@@ -1,0 +1,25 @@
+{
+  "name": "argos",
+  "version": "3.0.0",
+  "description": "ARGOS — Institutional Equity Intelligence for Japanese listed markets. EDINET-backed financial analysis, competitive landscape, and institutional-grade investment thesis. Powered by Google Gemini 2.5 Flash (free tier).",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod",
+    "atlas:build": "node scripts/build-atlas.mjs",
+    "atlas:sample": "node scripts/atlas-sample.mjs",
+    "test:atlas": "node scripts/test-atlas.mjs"
+  },
+  "dependencies": {
+    "@vercel/edge": "^1.1.1",
+    "adm-zip": "^0.5.17",
+    "pdfkit": "^0.15.2"
+  },
+  "devDependencies": {
+    "xlsx": "^0.18.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

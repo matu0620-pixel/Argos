@@ -1,0 +1,7 @@
+{
+  "generated_at": "2026-07-02T14:49:49.825Z",
+  "sample": true,
+  "companies": 400,
+  "industries": 10,
+  "source": "SYNTHETIC — 開発用。本番は scripts/build-atlas.mjs で生成"
+}

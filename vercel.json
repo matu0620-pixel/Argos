@@ -1,0 +1,39 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/analyze.js": {
+      "maxDuration": 300
+    },
+    "api/analyze-stream.js": {
+      "maxDuration": 300
+    },
+    "api/export-pdf.js": {
+      "maxDuration": 60,
+      "includeFiles": "lib/fonts/**"
+    },
+    "api/bench-financials.js": {
+      "maxDuration": 120
+    },
+    "api/atlas.js": {
+      "maxDuration": 30,
+      "includeFiles": "public/atlas/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/api/export-pdf",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, s-maxage=3600, stale-while-revalidate=86400" }
+      ]
+    }
+  ]
+}

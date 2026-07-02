@@ -1,0 +1,37 @@
+{
+  "version": "3.0.0",
+  "build_date": "2026-05-04",
+  "features": {
+    "ir_news_section": false,
+    "phase5_report_authoring": true,
+    "institutional_pdf_export": true,
+    "thesis_always_on": true,
+    "thesis_coverage_tiers": true,
+    "shikiho_tokushoku_blurb": true,
+    "edinet_business_full_expandable": true,
+    "company_name_search": true,
+    "new_format_codes": true,
+    "history_sidebar": true,
+    "memo_system": false,
+    "gemini_powered": true
+  },
+  "ai_provider": "google-gemini",
+  "models": {
+    "primary": "gemini-2.5-flash",
+    "lightweight": "gemini-2.5-flash-lite"
+  },
+  "breaking_changes": [
+    "Switched AI provider: Anthropic Claude → Google Gemini 2.5 Flash (free tier)",
+    "Coverage tiers: FULL / LIMITED / DRAFT (EDINET 充実度ベース)",
+    "Environment variable: ANTHROPIC_API_KEY → GEMINI_API_KEY",
+    "KV (Upstash Redis) is now optional"
+  ],
+  "kept": [
+    "History sidebar (履歴)",
+    "10-page institutional PDF export",
+    "5-phase analysis pipeline",
+    "Web search via Gemini Google Search grounding",
+    "All EDINET / Yahoo Finance / Shikiho integrations"
+  ],
+  "build_signature": "argos-3.0.0-gemini-migration"
+}
